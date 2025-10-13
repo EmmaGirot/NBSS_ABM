@@ -1,0 +1,10 @@
+failure_name;failure_frequency_weeks;impacted_agent;impacted_attribute
+trash_accumulation;3;inlet;my_fqt
+trash_accumulation;3;ponding_area;my_fqt
+trash_accumulation;3;outlet;my_fqt
+sediment accumulation;5;inlet;my_fqt
+sediment_accumulation;7;ponding_area; my_fqt
+sediment accumulation;5;filter_media;my_fqt
+sediment accumulation;5;filter_media;my_fql
+sediment accumulation;5;outlet;my_fqt
+
