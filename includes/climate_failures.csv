@@ -1,0 +1,7 @@
+failure_name;impacted_agent;impacted_attribute
+grass_water_stress;grass;my_health
+shrubs_water_stress;shrubs_plants;my_health
+trees_water_stress;trees;my_health
+grass_drought_stress;grass;my_health
+shrubs_drought_stress;shrubs_plants;my_health
+trees_drought_stress;trees;my_health

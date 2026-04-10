@@ -1,4 +1,5 @@
 practice_name;practice_scope;practice_level;practice_frequency_weeks;impacted_agent;linked_failure_event
-trash_removal;general;2;11;;trash_accumulation
-sediment_removal;general;2;22;;sediment_accumulation
+trash_removal;specific;2;8;inlet;trash_accumulation
+trash_removal;specific;2;8;ponding_area;trash_accumulation
+sediment_removal;specific;2;108;filter_media;sediment_accumulation
 vegetation_replanting;specific;2;52;shrubs_plants
