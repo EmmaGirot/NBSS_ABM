@@ -6,12 +6,19 @@
 * 
 */
 
-/* v2.1 : 
- * TODO for v2.2
+/* 
+ * to run this version you'll need the following files from the includes folder : 
+ * climate_spei.csv
+ * ext_metric_failures.csv
+ * ext_time_failures.csv
+ * maintenance_programmed.csv
+ * MP_Failures.csv
+ * output_flow_LT.csv
+ * weather_input_gama.csv
+ * 
+ * TODO :
  * - call R from GAMA for spei calculation
  * - add randomness in the days of week in which ext_failures are triggered
- * - add programmed maintenance
- * - add performance indicators 
  */
 
 model NBSSAM
@@ -21,19 +28,18 @@ global {
 	float step <-1 #day;
 	float step1 <- 1.0;
 	
-	// Loading csv rainfall and spei file
+	// Setting simulation timeline
+	date starting_date <- date(string(int(weather_data[0,0])));  // starting date of simulation;
+	date end_date <- date(string(int(weather_data[0,length(rows_list(weather_data))-1])));
+	float simulation_duration <- float((years_between(starting_date,end_date)));
+	
+		// Loading csv rainfall and spei file
 	file weather_file <- csv_file("../includes/weather_input_gama.csv",",");
 	matrix weather_data <- matrix(weather_file);
 	
 	// TODO : create spei_file according to weather_file by calling R from GAMA
 	file spei_file <- csv_file("../includes/climate_spei.csv",",");
 	matrix spei_data <- matrix(spei_file);
-	
-	// Setting simulation timeline
-	date starting_date <- date(string(int(weather_data[0,0])));  // starting date of simulation;
-	date end_date <- date(string(int(weather_data[0,length(rows_list(weather_data))-1])));
-	float simulation_duration <- float((years_between(starting_date,end_date)));
-	
 	
 	// Defining seasons
 	string current_season;
@@ -73,16 +79,17 @@ global {
 	image_file shrubs_plants_image <- image_file("../images/shrubs_plants.png");
 	image_file tree_image <- image_file("../images/tree.png");	
 	
-	// Performance map -> to add in NBSS species ?
-	map <string,int> performance <- ["Flood protection"::3,"Natural receiving ecosystem preservation"::3, "Biodiversity preservation"::3,"Aesthetics"::3]; 
-	
 	bool end_sim<-false;
-	bool static_arrows<-true;
-	
+		
 	// maintenance parameters 
-	string maintenance_type <- "no maintenance" parameter: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
+	string maintenance_type <- "programmed" parameter: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
 	int intervention_delay_days <- 5 parameter:true  min:2 max: 30;
-
+	
+	//performance parameters
+	int days_maintained <- 0;
+	int days_accepted_flood <- 0;
+	int days_flooding <- 0;
+	int days_vegetation_degraded <- 0;
 	
 	init {
 		
@@ -130,7 +137,7 @@ global {
 					myself.my_output_unmanaged_flow <- self;
 				}		
 		
-			}	
+			}
 			create vegetation_cover {
 				my_name<-"vegetation_cover";
 				my_NBSS<- myself;
@@ -206,6 +213,7 @@ global {
 			my_name <- "Receiving natural environment";
 		}
 	
+		create failure_event {}
 		// The following 2 csv files contain failure event parameters.
 		// Here I am creating as many failure events agent as there are lines in the CSV file.
 		create ext_time_failure from:csv_file( "../includes/ext_time_failures.csv",';',true) with:
@@ -229,13 +237,10 @@ global {
 		// The maintenance_practices.csv file contains maintenance practices parameters
 		// Here I am creating as many maintenance practice agent as there are lines in the CSV file. 
 		if maintenance_type = "programmed" {
-			create maintenance_practice from:csv_file( "../includes/maintenance_programmed.csv",';',true) with:
+			create programmed_maintenance from:csv_file( "../includes/maintenance_programmed.csv",';',true) with:
 				[practice_name::string(get("practice_name")), 
-					practice_scope::string(get("practice_scope")),
-					practice_level::int(get("practice_level")),
-					maintenance_frequency::float(get("practice_frequency_weeks"))#week, 
-					impacted_agent::string(get("impacted_agent")),
-					linked_failure_event::string(get("linked_failure_event"))
+					maintenance_frequency::float(get("practice_frequency_weeks")), 
+					department::string(get("department"))
 				];	
 		}
 		if maintenance_type = "run-to-failure" {
@@ -294,7 +299,6 @@ species rain {
 			if (runoff.my_flow != 0) {
 				last_rain <- current_date;
 			}	
-		save [current_date,runoff.my_flow] to: "../results/runoff.csv" format:"csv" rewrite: true;	
 	}
 }
 
@@ -326,18 +330,12 @@ species component {
 	output_flow my_output_managed_flow;
 	output_flow my_output_unmanaged_flow;
 	rgb my_color;
-	list<failure_event> my_failures;
+	list<failure_event> my_failures ;
 	map <string,int> function_attributes;
-	map <int,rgb> condition_color <- [3::#green,2::#yellow,1::#orange,0::#red];
 	component my_upstream_comp;
 	component my_downstream_comp;
 	list<string> my_impacted_agents;
-	bool rtf_state <- true;
-	
-	
-	reflex update_color {
-		my_color<-condition_color[int(min(function_attributes.values))];	
-	}
+	bool rtf_state <- false; //run-to-failure state
 
 	action flow_downstream {
 		do update_output_flows(my_upstream_comp.my_output_managed_flow.my_flow);
@@ -369,16 +367,14 @@ species engineered_component parent: component {
 	
 	
 	// critical state that will lead to run-to-failure maintenance
-	reflex eng_critic_state when: (function_attributes["my_fqt"]=1) and (rtf_state=true){
-		rtf_state <- false;	
-		ask rtf_maintenance {
+	reflex eng_critic_state when: (function_attributes["my_fqt"]=0) and (rtf_state=false){
+		rtf_state <- true;
+		create rtf_maintenance {
+			impacted_component <- myself;
 			rtf_state_date <- current_date;
 		}
 		
 	}
-
-
-
 }
 	
 
@@ -391,6 +387,13 @@ species inlet parent: engineered_component {
 		//draw line([ponding_area(0).location -0.01,self.location + 3]) color: #dodgerblue begin_arrow: 2 end_arrow: -7 width: 2.0;
 	}
 	
+	reflex accepted_flood when: (my_output_unmanaged_flow.my_flow =3){
+		days_accepted_flood <- days_accepted_flood +1 ;
+	}
+	
+	reflex flooding when: (my_output_unmanaged_flow.my_flow >= 1 and my_output_unmanaged_flow.my_flow <3){
+		days_flooding <- days_flooding +1 ;
+	}
 }
 
 /******************************************** PONDING AREA ********************************************/
@@ -399,11 +402,18 @@ species ponding_area parent: engineered_component {
 	bool ponding <- false;
 	
 	//unusual ponding occurs when filter media has an output_unmanaged_flow
-	reflex unusual_ponding when: (current_date < starting_date) and (my_downstream_comp.my_output_unmanaged_flow.my_flow>=2) and (ponding=false){
+	reflex unusual_ponding when: (current_date < starting_date) and (my_downstream_comp.my_output_unmanaged_flow.my_flow>=1) and (ponding=false){
 		function_attributes["my_fqt"] <- max(0,function_attributes["my_fqt"]-1);
 		ponding <- true;
-		save [current_date,"unsual_ponding",my_name,"my_fqt"] to: "../results/failures.csv" format:"csv" rewrite: false;
-		
+		create failure_event {
+			my_name <- "unusual_ponding";
+			impacted_agent <- my_name;
+			impacted_attribute <- "my_fqt";	
+			last_failure <- current_date;
+			ask agents of_generic_species component where (each.my_name=impacted_agent) {	
+				add myself to: my_failures;
+			}
+		}		
 	}
 	
 	// if there hasn't been any runoff >= 2 for the next 2 days after an unsual ponding event, ponding ends
@@ -435,12 +445,12 @@ species filter_media parent: engineered_component {
 	float partpoll_acc <- 0.0;
 	
 	// sediment accumulation dynamic = 0.3 cm/year (Chabert et al., 2025) 
-	reflex partpoll_accumulation when: every(1 #year){
+	reflex partpoll_accumulation when: every(1 #year) and (current_date > starting_date){
 		partpoll_acc <- partpoll_acc + 0.3;
 	}
 	
-	//when filter_media is getting clogged (because of sediment accumulation), vegetation health is impacted
-	reflex clogged_fm when: (function_attributes["my_fqt"] <=1) and every(1# month){
+	//when filter_media is getting clogged (because of sediment accumulation or excess veg), vegetation health is impacted
+	reflex clogged_fm when: (function_attributes["my_fqt"] <=1) and every(2# week){
 		ask agents of_generic_species vegetal_component {
 			do clogged_fm_on_veg;
 		}
@@ -449,7 +459,15 @@ species filter_media parent: engineered_component {
 	//when vegetation is unhealthy, infiltration performance of filter media is impacted
 	action unhealthy_veg_on_fm {
 		function_attributes["my_fqt"] <- max(0,function_attributes["my_fqt"]-0.25);
-		save [current_date,"unhealthy_veg_on_fm",my_name,"my_fqt"] to: "../results/failures.csv" format:"csv" rewrite: false;
+		create failure_event {
+			my_name <- "unhealthy_veg_on_fm";
+			impacted_agent <- "filter_media";
+			impacted_attribute <- "my_fqt";
+			last_failure <- current_date;
+			ask agents of_generic_species component where (each.my_name=impacted_agent) {	
+				add myself to: my_failures;
+			}
+		}
 		
 	}
 
@@ -473,9 +491,9 @@ species outlet parent: engineered_component {
 /**************************************** PARENT : VEGETAL COMPONENTS*************************************************/
 
 species vegetal_component parent: component {
-	map <string,float> function_attributes <- ["my_health"::my_health];
-	float my_health <- 3.0;	
-	float my_health_pre_spei ;
+	map <string,float> function_attributes <- ["my_health"::3];
+	bool climate_stress <- false;
+
 
 	// find the min and max of the list of spei3 for each season 
 	reflex spei3_season when: (current_date.month = 2 or current_date.month=5 or current_date.month=8 or current_date.month=11)  and current_date.day = 1 {
@@ -484,18 +502,32 @@ species vegetal_component parent: component {
 				float max_spei3_season <- max(float(spei_data[2,i]),float(spei_data[2,i-1]), float(spei_data[2,i-2]));
 				float min_spei3_season <- min(float(spei_data[2,i]),float(spei_data[2,i-1]), float(spei_data[2,i-2]));
 				if (max_spei3_season >= 1.5) { // water stress/drowning
-					do dying();  
-					save [current_date,"water_stress",my_name,"my_health"] to: "../results/failures.csv" format:"csv" rewrite: false;
-					
+					do dying(); 
+					create failure_event {
+						my_name <- "water_stress";
+						impacted_agent <- my_name;
+						impacted_attribute <- "my_health";
+						last_failure <- current_date;
+						ask agents of_generic_species component where (each.my_name=impacted_agent) {	
+							add myself to: my_failures;
+						}
+					}
+					climate_stress <- true;
 				}
 				if (min_spei3_season <= -1.5 and current_season!= "winter") { // drought stress - we do not consider drought stress in winter
 					do dying();
-					save [current_date,"drought_stress",my_name,"my_health"] to: "../results/failures.csv" format:"csv" rewrite: false;
-					
+					create failure_event {
+						my_name <- "drought_stress";
+						impacted_agent <- my_name;
+						impacted_attribute <- "my_health";
+						last_failure <- current_date;
+						ask agents of_generic_species component where (each.my_name=impacted_agent) {	
+							add myself to: my_failures;
+						}
+					}climate_stress <- true;
 				}
 				else { // if no drought or water stress, my_health is increased by 1 or maintained at 3
 					do recovering();
-					save [current_date,"recovering",my_name,"my_health"] to: "../results/failures.csv" format:"csv" rewrite: false;
 					
 				}
 			}
@@ -504,19 +536,42 @@ species vegetal_component parent: component {
 	}
 	
 	action dying {
-		my_health <- max(0,my_health -1);	
+		function_attributes["my_health"] <- max(0,function_attributes["my_health"] -1);
+			
 	}
 	
 	action recovering {
-		my_health <- min(3,my_health +1);		
+		if (climate_stress = true) and (function_attributes["my_health"]!= 0) {
+			function_attributes["my_health"] <- min(3,function_attributes["my_health"] +1);	
+			climate_stress <- false;
+		}
 	}
 	
 	//when filter_media is getting clogged (because of sediment accumulation), vegetation health is impacted
 	action clogged_fm_on_veg {
-		my_health <- max(0,my_health - 0.25);
-		save [current_date,"clogged_fm_on_veg",my_name,"my_health"] to: "../results/failures.csv" format:"csv" rewrite: false;
+		function_attributes["my_health"] <- max(0,function_attributes["my_health"] - 0.25);
+		create failure_event {
+			my_name <- "clogged_fm_on_veg";
+			impacted_agent <- my_name;
+			impacted_attribute <- "my_health";
+			last_failure <- current_date;
+			ask agents of_generic_species component where (each.my_name=impacted_agent) {	
+				add myself to: my_failures;
+			}
+		}
 		
 	}
+	
+	// critical state that will lead to run-to-failure maintenance
+	reflex veg_critic_state when: (function_attributes["my_health"]=0) and (rtf_state=false){
+		rtf_state <- true;	
+		create rtf_maintenance {	
+			impacted_component <- myself;
+			rtf_state_date <- current_date;
+		}
+		
+	}
+	
 }
 
 
@@ -560,21 +615,21 @@ species vegetation_cover parent: component {
 	grass my_grass;
 	shrubs_plants my_shrubs;
 	trees my_trees;
-	map <string,int> function_attributes <- ["my_health"::my_global_health,"my_diversity"::my_diversity];
-	int my_diversity <- 3;
-	float my_global_health;
+	map <string,int> function_attributes <- ["my_health"::3,"my_diversity"::3];
 	bool invasive <- false;
-	
-	reflex my_health {
-		my_global_health <- min(my_grass.my_health,my_shrubs.my_health);
+
+
+	reflex my_global_health {
+		function_attributes["my_health"] <- min(my_grass.function_attributes["my_health"],my_shrubs.function_attributes["my_health"]);
 	}
 	
 	// when the vegetation cover's global health reaches 1, it impacts the filter media "my_fqt" attribute by -0.25 every month
-	reflex unhealthy_veg when: (my_global_health<=1) and every(1 #month) {
+	reflex unhealthy_veg when: (function_attributes["my_health"]<=1) and every(1 #month) {
 		ask any(filter_media){
 			do unhealthy_veg_on_fm;
 		}
 	}
+	
 	
 	// if invasive_plants impacted vegetation_cover than the "excess_veg" failure trigger frequency in ext_failures will go from every year in spring to once a season (expect for winter)
 	reflex invasive_taking_over when: (invasive=true) {
@@ -587,6 +642,10 @@ species vegetation_cover parent: component {
 				my_fall_factor<- 1;
 		}
 		invasive <- false;
+	}
+	
+	reflex degraded when: ((function_attributes["my_diversity"]<=1) or (function_attributes["my_health"]<= 1)){
+		days_vegetation_degraded <- days_vegetation_degraded +1;
 	}
 	
 }
@@ -664,18 +723,28 @@ species failure_event{
 	string impacted_attribute;
 	date last_maintenance <- starting_date;	
 	date last_failure <- starting_date;
+	bool failure_happened <- false;
 
 	// impact of a failure event on attributes
 	action failure_impact (failure_event failure) {
 		ask agents of_generic_species component where (each.my_name=failure.impacted_agent){
 			function_attributes[failure.impacted_attribute] <- max(0,function_attributes[failure.impacted_attribute]-1);
 			failure.last_failure <- current_date;
-			write failure.my_name + " on " + failure.impacted_agent + " on " + string(current_date,"dd MM yyyy");
-			add failure to:self.my_failures;
-			save [current_date,failure.my_name,failure.impacted_agent,failure.impacted_attribute] to: "../results/failures.csv" format:"csv" rewrite: false;
-
+			add myself to:self.my_failures;
 		}
 	}
+	
+	reflex failure_happened when: (failure_happened = true) and (last_failure != current_date) {
+		failure_happened <- false;
+	}
+	
+	reflex failure_happening when:(last_failure = current_date) and (last_failure > starting_date) and (failure_happened = false) {	
+		write my_name + " on " + impacted_agent + " on " + string(current_date,"dd MM yyyy");
+		failure_happened <- true;
+
+	}
+	
+
 	
 }
 
@@ -714,7 +783,7 @@ species ext_time_failure parent: failure_event {
 					// Some failures occur under conditions : excess_veg on inlet if vegetation_cover.my_health >= 2 and invasive_plants if vegetation_cover.my_health <= 1
 					if (my_name="excess_veg"){
 						ask any(vegetation_cover) {
-							if (my_global_health >= 2) {
+							if (function_attributes["my_health"] >= 2) {
 								ask myself {
 									do failure_impact(self);
 								}
@@ -725,7 +794,7 @@ species ext_time_failure parent: failure_event {
 					if (my_name="invasive_plants"){
 							ask any(vegetation_cover) {
 								invasive <- true;
-								if (my_global_health <= 1) {
+								if (function_attributes["my_health"] <= 1) {
 									ask myself {
 										do failure_impact(self);
 									}
@@ -746,7 +815,7 @@ species ext_time_failure parent: failure_event {
 					// Some failures occur under conditions : excess_veg on inlet if vegetation_cover.my_health >= 2 and invasive_plants if vegetation_cover.my_health <= 1
 					if (my_name="excess_veg"){
 						ask any(vegetation_cover) {
-							if (my_global_health >= 2) {
+							if (function_attributes["my_health"] >= 2) {
 								ask myself {
 									do failure_impact(self);
 								}
@@ -757,7 +826,7 @@ species ext_time_failure parent: failure_event {
 					if (my_name="invasive_plants"){
 							ask any(vegetation_cover) {
 								invasive <- true;
-								if (my_global_health <= 1) {
+								if (function_attributes["my_health"] <= 1) {
 									ask myself {
 										do failure_impact(self);
 									}
@@ -799,88 +868,100 @@ species ext_metric_failure parent: failure_event {
 	}
 	
 /***************************************************** MAINTENANCE PRACTICE *******************************************/
-species maintenance_practice {
+species programmed_maintenance {
 	string practice_name;
-	string practice_scope;
-	int practice_level;
 	float maintenance_frequency;
-	string impacted_agent;
-	string linked_failure_event;
-
+	string department;
+	list<string> linked_failures;
+	list<failure_event> processed_failures;
 	
-	reflex trigger_prog_maintenance when: (maintenance_type="programmed")and every(maintenance_frequency){
-		// if the maintenance practice's scope is specific, find the impacted_agent
-		if (practice_scope = "specific"){
-			ask agents of_generic_species vegetal_component where (each.my_name=impacted_agent){
-				function_attributes["my_health"] <- 3;
-		
-				//reset failure event frequency with maintenance date
-				ask self.my_failures where (each.my_name=myself.linked_failure_event){
-					last_maintenance <- current_date;
+	// for each  maintenance practice created,create the list of linked_failures from failure_mp_map
+	// TODO: make sure that if a maintenance practice is created it should have a linked failure to it OR create another option..
+	reflex link_mp_to_failure when: current_date = starting_date {
+		//Loading mapping table between maintenance practices and failures
+		file mapping_mp_failure <- csv_file("../includes/MP_Failures.csv",";");
+		matrix mp_failure_map <- matrix(mapping_mp_failure);
+		loop index_column from: 0 to: mp_failure_map.columns -1 {
+			if mp_failure_map[index_column,0] = practice_name { // find the column corresponding to the maintenance practice in the mp_failure map 
+				loop index_row from:1 to: mp_failure_map.rows-1{ // 
+					add mp_failure_map[index_column,index_row] to: linked_failures;
 				}
-				// remove failure events that are going to be maintained from the my_failures list
-				remove all:(self.my_failures where (each.my_name=myself.linked_failure_event)) from:self.my_failures;
-				}
-			ask agents of_generic_species engineered_component where (each.my_name=impacted_agent){
-				function_attributes[] <- 3;
-				if (my_name = "filter_media") {
-						ask my_NBSS.my_filter_media{
-							partpoll_acc <- 0.0;
-				 }
-				}
-				//reset failure event frequency with maintenance date
-				ask self.my_failures where (each.my_name=myself.linked_failure_event){
-					last_maintenance <- current_date;
-				}
-				
-				// remove failure events that are going to be maintained from the my_failures list
-				remove all:(self.my_failures where (each.my_name=myself.linked_failure_event)) from:self.my_failures;
-
 			}
+
 		}
-//		// if the maintenance practice's scope is general, find all the components impacted by linked_failure_event = find all components whose failure name in the list my failures = linked_failure_event of maintenance practice-> ASK FRANCK
-//		else if (practice_scope = "general") {
-//			ask  NBSS[0].my_components {
-//				 loop the_failures over: my_failures {
-//				 	if (the_failures.my_name = myself.linked_failure_event){
-//						//do eng_response_to_maintenance(myself);
-//					}
-//				 }	
-//			}				
-//		}
 	}
+
+	reflex trigger_prog_maintenance when: (maintenance_type="programmed")and every(maintenance_frequency #week) and (current_date>starting_date){ 
+		days_maintained <- days_maintained +1;
+		ask agents of_generic_species vegetal_component {
+			if length(my_failures)>=1{
+				loop j over:my_failures {
+					loop i over:myself.linked_failures {
+						if j.my_name=i{
+							ask j {
+								myself.function_attributes[impacted_attribute] <- min(3,myself.function_attributes[impacted_attribute]+1);
+								//reset failure event frequency with maintenance date
+								 last_maintenance <- current_date; 
+								
+							}add j to:myself.processed_failures;
+						} 
+					}
+				}
+			}remove myself.processed_failures from:my_failures;
+		}
+		ask agents of_generic_species engineered_component {
+			if length(my_failures)>=1{	
+				loop j over:my_failures {
+					loop i over:myself.linked_failures {
+						if j.my_name =i{
+							ask j {
+								myself.function_attributes[impacted_attribute] <- min(3,myself.function_attributes[impacted_attribute]+1);
+								//reset failure event frequency with maintenance date
+								 last_maintenance <- current_date; 
+								 if (impacted_agent = "filter_media") {
+									ask myself.my_NBSS.my_filter_media{
+									partpoll_acc <- 0.0;
+								 }
+								}
+							}add j to:myself.processed_failures;
+						}
+					}
+				}
+			} remove myself.processed_failures from:my_failures;
+		}
+
+	}
+
 }
 
-// run to failure maintenance agent 
+// run to failure maintenance agent
 species rtf_maintenance {
+	component impacted_component;
 	date rtf_state_date <- starting_date; 
 	
-	reflex trigger_rtf_maintenance when: (current_date = rtf_state_date + intervention_delay_days #days) and (rtf_state_date !=starting_date) and (maintenance_type = "run-to-failure") {
-			ask agents of_generic_species vegetal_component {
-				function_attributes["my_health"] <- 3;
-			rtf_state<- true;	
+	reflex trigger_rtf_maintenance when: (current_date = rtf_state_date + intervention_delay_days #day ) and (rtf_state_date !=starting_date) and (maintenance_type = "run-to-failure") {
+			days_maintained <- days_maintained +1;
+			ask agents of_generic_species vegetal_component where (each.my_name=impacted_component.my_name) {
+				function_attributes["my_health"] <- 3.0;
+				rtf_state <- false;
 				//reset failure event frequency with maintenance date
 				ask self.my_failures {
 					last_maintenance <- current_date;
 				}
-				// remove failure events that are going to be maintained from the my_failures list
-				remove all:(self.my_failures) from:self.my_failures;
 			}
-			ask agents of_generic_species engineered_component{
-				function_attributes[] <- 3;
-				rtf_state<- true;
+			ask agents of_generic_species engineered_component where (each.my_name=impacted_component.my_name) {
+			//ask agents of_generic_species engineered_component where (each.critic_state=true){
+				function_attributes["my_fqt"] <- 3 ;
+				rtf_state <- false;
 				if (my_name = "filter_media") {
-						ask my_NBSS.my_filter_media{
-							partpoll_acc <- 0.0;
-				 }
+					ask my_NBSS.my_filter_media{
+						partpoll_acc <- 0.0;
+				 	}
 				}
 				//reset failure event frequency with maintenance date
 				ask self.my_failures  {
 					last_maintenance <- current_date;
 				}
-				
-				// remove failure events that are going to be maintained from the my_failures list
-				remove all:(self.my_failures) from:self.my_failures;
 
 			}
 		}
@@ -889,43 +970,59 @@ species rtf_maintenance {
 //******************** EXPERIMENT  *****************************************
 	
 // Tests for sensitivity analysis	
-experiment "tests" type: batch repeat:10 until:end_sim{
-	
+experiment "tests" type: batch repeat:3 until:end_sim{
+	parameter "maintenance" var: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
+		output {
+		monitor "Accepted flood" value: days_accepted_flood;
+		monitor "Flooding" value: days_flooding;
+		monitor "Degraded vegetation days" value:days_vegetation_degraded;
+		monitor "Maintenance days" value:days_maintained;
+		}
 }
 
 // Simple run of model without interface 
-experiment "run" {
+experiment "run" type: gui {
+	output {
+		monitor "Accepted flood" value: days_accepted_flood;
+		monitor "Flooding" value: days_flooding;
+		monitor "Degraded vegetation days" value:days_vegetation_degraded;
+		monitor "Maintenance days" value:days_maintained;
+		}
 	
 }
 
 // Interface 
 experiment "Interface (EN)"	type: gui {
 	output {
+		monitor "Accepted flood" value: days_accepted_flood;
+		monitor "Flooding" value: days_flooding;
+		monitor "Degraded vegetation days" value:days_vegetation_degraded;
+		monitor "Maintenance days" value:days_maintained;
 		display "Rain" type: 2d {
 			chart "Runoff" type: series y_label: "class" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
-				data "Runoff events" value:rain collect(each.runoff.my_flow) color:#blue line_visible:false style: dot ;
+				data "Runoff events" value:rain collect(each.runoff.my_flow) color:#blue line_visible:true marker_shape: marker_up_triangle ;
 				}
 		}
 		display "Inlet" type: 2d {
 			chart "Inlet evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
-				data "Inflow" value:rain collect (each.runoff.my_flow)color: #darkblue marker_shape: marker_down_triangle;
-				data "Inflow performance level" value:inlet collect (each.function_attributes["my_fqt"])color: #grey style: dot;
-				data "Outflow" value:inlet collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
+				//data "Inflow" value:rain collect (each.runoff.my_flow)color: #darkblue marker_shape: marker_down_triangle;
+				data "Inflow performance level" value:inlet collect (each.function_attributes["my_fqt"])color: #grey marker_shape: marker_down_triangle;
+				//data "Outflow" value:inlet collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
 			}
 		}
 		display "Ponding area" type: 2d{
 			chart "Ponding area evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
-				data "Inflow" value:inlet collect (each.my_output_managed_flow.my_flow) color: #darkblue marker_shape: marker_down_triangle;
-				data "Retention performance level" value:ponding_area collect (each.function_attributes["my_fqt"])color: #grey style: dot;
-				data "Outflow" value:ponding_area collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
+				//data "Inflow" value:inlet collect (each.my_output_managed_flow.my_flow) color: #darkblue marker_shape: marker_down_triangle;
+				data "Retention performance level" value:ponding_area collect (each.function_attributes["my_fqt"])color: #grey marker_shape: marker_down_triangle;
+				//data "Outflow" value:ponding_area collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
 			}
 		}
 		display "Filter media" type: 2d {
 			chart "Filter media evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
-				data "Inflow" value:ponding_area collect (each.my_output_managed_flow.my_flow) color: #darkblue marker_shape: marker_down_triangle;
-				data "Infiltration performance level" value:filter_media collect (each.function_attributes["my_fqt"])color: #grey style: dot;
+				//data "Inflow" value:ponding_area collect (each.my_output_managed_flow.my_flow) color: #darkblue marker_shape: marker_down_triangle;
+				data "Infiltration performance level" value:filter_media collect (each.function_attributes["my_fqt"])color: #grey marker_shape: marker_down_triangle;
 				data "Sediment accumulation" value:filter_media collect (each.partpoll_acc) color: #red;
-				data "Outflow" value:filter_media collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
+				//data "Outflow" value:filter_media collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
 			}
 		}
 //		display "Outlet" type: 2d {
@@ -936,13 +1033,32 @@ experiment "Interface (EN)"	type: gui {
 //			}
 //		}
 		display "Vegetation cover" type: 2d {
-			chart "Vegetation evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
-				data "Health" value:vegetation_cover collect (each.my_global_health) color: #darkblue marker_shape: marker_down_triangle;
-				data "Diversity" value:vegetation_cover collect (each.my_diversity)color: #thistle style: dot;
+			chart "Vegetation cover evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
+				data "Grass Health" value:grass collect (each.function_attributes["my_health"]) color: #lightgreen marker_shape: marker_down_triangle;
+				data "Shrubs Health" value:shrubs_plants collect (each.function_attributes["my_health"]) color: #orange marker_shape: marker_down_triangle;
+				data "Tree Health" value:trees collect (each.function_attributes["my_health"]) color: #pink marker_shape: marker_down_triangle;
+				//data "Health" value:vegetation_cover collect (each.function_attributes["my_health"]) color: #darkblue marker_shape: marker_down_triangle;
+				data "Diversity" value:vegetation_cover collect (each.function_attributes["my_diversity"])color: #thistle style: dot;
 			}
+		}
+		display "Performance" type: 2d {
+			chart "Performance assessment" type:histogram
+			y_range:[0,7000]
+			y_tick_unit:1000		
+			y_label: "nb of days"
+			series_label_position: onchart {
+				datalist legend:["Unmanaged flooding", "Accepted flooding","Unhealthy vegetation","Maintenance days"] 
+						style: bar
+						value:[days_flooding,days_accepted_flood,days_vegetation_degraded,days_maintained] 
+						color:[#lightblue,#blue,#green,#purple];
+						
+			}
+			
+
 		}
 	}
 }
+
 
 
 
