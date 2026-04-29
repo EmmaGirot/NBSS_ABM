@@ -1,0 +1,7 @@
+﻿vegetation_management;trash_removal;leaf_removal;mowing;sediment_removal;component_cleaning
+water_stress;trash_acc;leaf_acc;excess_veg;partpoll_acc;trash_acc
+drought_stress;;;;clogged_fm_on_veg;leaf_acc
+unhealthy_veg_on_fm;;;;unusual_ponding;
+excess_veg;;;;;
+pathogens;;;;;
+invasive_plants;;;;;
