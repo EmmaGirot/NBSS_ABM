@@ -1,5 +1,8 @@
-practice_name;practice_scope;practice_level;practice_frequency_weeks;impacted_agent;linked_failure_event
-trash_removal;specific;2;8;inlet;trash_acc
-trash_removal;specific;2;8;ponding_area;trash_acc
-sediment_removal;specific;2;108;filter_media;partpoll_acc
-vegetation_replanting;specific;2;52;shrubs_plants
+practice_name;practice_frequency_weeks;season_dep;target_season;department;cost_euros
+trash_removal;1;false;;cleaning;
+leaf_removal;1;false;;cleaning;
+visual_inspection;26;false;;stormwater;
+component_cleaning;52;false;;stormwater;
+sediment_removal;260;false;;stormwater;
+mowing;26;false;;green_spaces;
+vegetation_management;26;false;;green_spaces;

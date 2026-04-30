@@ -1,0 +1,4 @@
+﻿MP;neg_impact;freq_sensitive;season_sensitive;target_season_1;target_season_2;target_season_3;impacted_component;impacted_attribute
+vegetation_management;true;true;false;;;;vegetation_cover;my_health
+mowing;true;true;true;autumn;winter;;vegetation_cover;my_diversity
+sediment_removal;true;false;false;;;;vegetation_cover;my_health

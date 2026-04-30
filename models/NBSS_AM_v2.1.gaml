@@ -7,17 +7,27 @@
 */
 
 /* 
- * to run this version you'll need the following files from the includes folder : 
+ * to run this version you'll need the following files from the includes folder :
+ * output_flow_LT.csv
+ * maintenance_programmed.csv
+ * 	in the climate folder : 
  * climate_spei.csv
+ * weather_input_gama.csv
+ * 	in the failures folder : 
  * ext_metric_failures.csv
  * ext_time_failures.csv
- * maintenance_programmed.csv
- * MP_Failures.csv
- * output_flow_LT.csv
- * weather_input_gama.csv
+*	in the maintenance_practices folder
+ * MP_pos_impact.csv
+ * MP_neg_impact_seasons.csv
+
+ * 
+ * Changes made are : 
+ * - grass and shrubs_plants are no longer 2 different agents but one called vegetation_cover
+ * - negative impact of maintenance practices if not carried out during targeted seasons as written in MP_Seasons.csv
+ * - negative impact of maintenance practices if frequency is too high compared to failure frequency 
  * 
  * TODO :
- * - call R from GAMA for spei calculation
+ * - call R from GAMA for spei calculation  
  * - add randomness in the days of week in which ext_failures are triggered
  */
 
@@ -34,11 +44,11 @@ global {
 	float simulation_duration <- float((years_between(starting_date,end_date)));
 	
 		// Loading csv rainfall and spei file
-	file weather_file <- csv_file("../includes/weather_input_gama.csv",",");
+	file weather_file <- csv_file("../includes/climate/weather_input_gama.csv",",");
 	matrix weather_data <- matrix(weather_file);
 	
 	// TODO : create spei_file according to weather_file by calling R from GAMA
-	file spei_file <- csv_file("../includes/climate_spei.csv",",");
+	file spei_file <- csv_file("../includes/climate/climate_spei.csv",",");
 	matrix spei_data <- matrix(spei_file);
 	
 	// Defining seasons
@@ -73,23 +83,17 @@ global {
 
 	// Loading csv files that has the logic table which calculates the output flow depending on input and condition values
 	file output_flow_LT_file <- csv_file( "../includes/output_flow_LT.csv",';',int);
-	
-	// Loading image files for NBSS visualization
-	image_file grass_image <- image_file("../images/grass.png");
-	image_file shrubs_plants_image <- image_file("../images/shrubs_plants.png");
-	image_file tree_image <- image_file("../images/tree.png");	
-	
 	bool end_sim<-false;
 		
 	// maintenance parameters 
-	string maintenance_type <- "programmed" parameter: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
+	string maintenance_type <- "programmed";// parameter: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
 	int intervention_delay_days <- 5 parameter:true  min:2 max: 30;
 	
 	//performance parameters
 	int days_maintained <- 0;
 	int days_accepted_flood <- 0;
 	int days_flooding <- 0;
-	int days_vegetation_degraded <- 0;
+	int days_vegetation_degraded <- 0; 
 	
 	init {
 		
@@ -101,9 +105,9 @@ global {
 			}
 		}
 		// Initialization of NBSS and all its components :
-		create NBSS with: [location::{50, 40}]{
-			my_name <- "Bioretention cell";
-			create inlet with: [location::{20, 25}]{
+		create NBSS {
+			my_name <- "Swale1";
+			create inlet {
 				my_name<-"inlet";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -120,7 +124,7 @@ global {
 	
 				}
 			}
-			create ponding_area with: [location::{45, 40}] {
+			create ponding_area  {
 				my_name<-"ponding_area";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -141,23 +145,12 @@ global {
 			create vegetation_cover {
 				my_name<-"vegetation_cover";
 				my_NBSS<- myself;
-				my_upstream_comp <- my_NBSS.my_ponding_area;
-				my_downstream_comp <- my_NBSS.my_filter_media;
-				create grass {
-					my_name <- "grass";
-					myself.my_grass <- self;
-				}
-				create shrubs_plants {
-					my_name <- "shrubs_plants";
-					myself.my_shrubs <- self;
-				}
-				create trees {
-					my_name <- "trees";
-					myself.my_trees <- self;
-				}
-
 			}
-			create filter_media with: [location::{45, 46}]{
+			create trees {
+				my_name <- "trees";
+				my_NBSS<- myself;
+			}
+			create filter_media {
 				my_name<-"filter_media";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -176,7 +169,7 @@ global {
 			}
 		
 			
-			create outlet with: [location::{75, 60}]{
+			create outlet{
 				my_name <- "outlet";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -196,7 +189,7 @@ global {
 			my_components <- my_engineered_components union my_vegetal_components;	
 			
 		}
-		create urban_environment with: [location::{50, 37.5}] {
+		create urban_environment {
 			my_name <- "Urban environment";
 			create unmanaged_flow{
 				my_component<- myself;
@@ -205,18 +198,18 @@ global {
 			
 		}
 		
-		create sewer_system with: [location::{50,90}]{
+		create sewer_system{
 			my_name <- "Sewer system";
 		}
 		
-		create natural_environment with: [location::{50,90}]{
+		create natural_environment{
 			my_name <- "Receiving natural environment";
 		}
 	
 		create failure_event {}
 		// The following 2 csv files contain failure event parameters.
 		// Here I am creating as many failure events agent as there are lines in the CSV file.
-		create ext_time_failure from:csv_file( "../includes/ext_time_failures.csv",';',true) with:
+		create ext_time_failure from:csv_file( "../includes/failures/ext_time_failures.csv",';',true) with:
 			[my_name::string(get("failure_name")), 
 				season_dep::bool(get("season_dep")),
 				my_frequency::float(get("frequency_weeks")),
@@ -227,20 +220,24 @@ global {
 				impacted_agent::string(get("impacted_agent")),
 					impacted_attribute::string(get("impacted_attribute"))
 			];
-		create ext_metric_failure from:csv_file( "../includes/ext_metric_failures.csv",';',true) with:
+		create ext_metric_failure from:csv_file( "../includes/failures/ext_metric_failures.csv",';',true) with:
 				[my_name::string(get("failure_name")), 
 				impacted_agent::string(get("impacted_agent")),
 				impacted_attribute::string(get("impacted_attribute")),
 					my_threshold::int(get("threshold"))
 
 			];		
+
 		// The maintenance_practices.csv file contains maintenance practices parameters
 		// Here I am creating as many maintenance practice agent as there are lines in the CSV file. 
 		if maintenance_type = "programmed" {
 			create programmed_maintenance from:csv_file( "../includes/maintenance_programmed.csv",';',true) with:
 				[practice_name::string(get("practice_name")), 
 					maintenance_frequency::float(get("practice_frequency_weeks")), 
-					department::string(get("department"))
+					prog_season_dep::bool(get("season_dep")),
+					prog_target_season::list<string>(get("target_season")),
+					department::string(get("department")),
+					cost::float(get("cost_euros"))
 				];	
 		}
 		if maintenance_type = "run-to-failure" {
@@ -250,7 +247,6 @@ global {
 	}	
 	
 	reflex NBSS_functioning{
-		
 			// first, compute inlet output flow and associated pollutant loads with runoff as input flow
 			ask any(inlet){ 
 				do update_output_flows(any(rain).runoff.my_flow);
@@ -260,8 +256,7 @@ global {
 			}
 	
 		}
-		
-		
+			
 	reflex stop_simulation when: current_date > end_date {
 		end_sim<-true;
 		do pause;
@@ -271,6 +266,7 @@ global {
 //************************ SPECIES DECLARATION ***************************
 /* Declaration of the rain species */
 species rain {
+	float rainfall;
 	managed_flow runoff;
 	date last_rain;
 	list<int> runoff_history <- [];
@@ -280,20 +276,21 @@ species rain {
 		loop i from:0 to:weather_data.rows-1 {
 			if current_date = date(string(int(weather_data[0,i]))) {
 				//Rainfall event <= 20mm in a day are considered as a runoff flow of 1
-				if (float(weather_data[3,i]) <= 20.0 and float(weather_data[3,i]) > 5.0) {
+				if (float(weather_data[1,i]) <= 20.0 and float(weather_data[1,i]) > 5.0) {
 					runoff.my_flow <- 1.0;
 				}
 				//Rainfall event between 20mm and 80mm in a day are considered as a runoff flow of 2
-				if (float(weather_data[3,i]) > 20.0 and float(weather_data[3,i]) <= 80.0 ) {
+				if (float(weather_data[1,i]) > 20.0 and float(weather_data[1,i]) <= 80.0 ) {
 					runoff.my_flow <- 2.0;
 				}
 				//Rainfall event > 80mm in a day are considered as a runoff flow of 3
-				if (float(weather_data[3,i]) > 80.0 ) {
+				if (float(weather_data[1,i]) > 80.0 ) {
 					runoff.my_flow <- 3.0;
 				}
-
+			rainfall <- - float(weather_data[1,i]);
 			}
-
+		
+			
 		}
 		add(runoff.my_flow) to: runoff_history;
 			if (runoff.my_flow != 0) {
@@ -491,9 +488,7 @@ species outlet parent: engineered_component {
 /**************************************** PARENT : VEGETAL COMPONENTS*************************************************/
 
 species vegetal_component parent: component {
-	map <string,float> function_attributes <- ["my_health"::3];
 	bool climate_stress <- false;
-
 
 	// find the min and max of the list of spei3 for each season 
 	reflex spei3_season when: (current_date.month = 2 or current_date.month=5 or current_date.month=8 or current_date.month=11)  and current_date.day = 1 {
@@ -577,32 +572,30 @@ species vegetal_component parent: component {
 
 /***************************************************** GRASS *******************************************/
 
-species grass parent: vegetal_component {
-
-	aspect default {
-		draw grass_image size: {20.0, 10.0, 0.0};
-		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -5, 1} anchor: #top_center;
-	}
-}
-
-/***************************************************** SHRUBS and PLANTS *******************************************/
-
-species shrubs_plants parent: vegetal_component {
-	
-	aspect default {
-		//draw rectangle(10,10) at: my_surface.location + {0,-5,1};
-		//draw shrubs_plants_image size: {20.0, 12.0, 0.0} at: my_surface.location + {8, -8, 1};
-		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -8, 1} anchor: #top_center;
-	}
-	
-}
+//species grass parent: vegetal_component {
+//
+//	aspect default {
+//		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -5, 1} anchor: #top_center;
+//	}
+//}
+//
+///***************************************************** SHRUBS and PLANTS *******************************************/
+//
+//species shrubs_plants parent: vegetal_component {
+//	
+//	aspect default {
+//		//draw rectangle(10,10) at: my_surface.location + {0,-5,1};
+//		//draw shrubs_plants_image size: {20.0, 12.0, 0.0} at: my_surface.location + {8, -8, 1};
+//		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -8, 1} anchor: #top_center;
+//	}
+//	
+//}
 
 /***************************************************** TREES *******************************************/
 
 species trees parent: vegetal_component {
-	
+	map <string,int> function_attributes <- ["my_health"::3];
 	aspect default {
-		draw tree_image size: {20.0, 20.0, 0.0};
 		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -12, 1} anchor: #top_center;
 	}
 }
@@ -611,25 +604,15 @@ species trees parent: vegetal_component {
 
 // Vegetation cover , can be made of one or multiple vegetal components
 species vegetation_cover parent: component {
-	component my_surface;
-	grass my_grass;
-	shrubs_plants my_shrubs;
-	trees my_trees;
 	map <string,int> function_attributes <- ["my_health"::3,"my_diversity"::3];
 	bool invasive <- false;
 
-
-	reflex my_global_health {
-		function_attributes["my_health"] <- min(my_grass.function_attributes["my_health"],my_shrubs.function_attributes["my_health"]);
-	}
-	
 	// when the vegetation cover's global health reaches 1, it impacts the filter media "my_fqt" attribute by -0.25 every month
 	reflex unhealthy_veg when: (function_attributes["my_health"]<=1) and every(1 #month) {
 		ask any(filter_media){
 			do unhealthy_veg_on_fm;
 		}
 	}
-	
 	
 	// if invasive_plants impacted vegetation_cover than the "excess_veg" failure trigger frequency in ext_failures will go from every year in spring to once a season (expect for winter)
 	reflex invasive_taking_over when: (invasive=true) {
@@ -868,19 +851,58 @@ species ext_metric_failure parent: failure_event {
 	}
 	
 /***************************************************** MAINTENANCE PRACTICE *******************************************/
-species programmed_maintenance {
+
+species programmed_maintenance  {
+	// data from maintenance_programmed.csv
 	string practice_name;
 	float maintenance_frequency;
 	string department;
-	list<string> linked_failures;
+	bool prog_season_dep; //some maintenance practices are season-dependent, i.e. they have a positive impact only if carried out during their target season(s)
+	list<string> prog_target_season;
+	float cost;
+	
+	
 	list<failure_event> processed_failures;
+	
+	// 
+	//Loading data from MP_pos_impact.csv which states what failures the MP responds to 
+	file mapping_mp_failure <- csv_file("../includes/maintenance_practices/MP_pos_impact.csv",";");
+	matrix mp_failure_map <- matrix(mapping_mp_failure);
+	list<string> linked_failures; // failures for which the maintenance practice responds to 
+
+	// Loading data from MP_neg_impact_seasons.csv which states if the MP can have a negative impact on a component and if it depends of the season during which it is carried out
+	file mp_target_season <- csv_file("../includes/maintenance_practices/MP_neg_impact_seasons.csv",";");
+	matrix mp_season_map <- matrix(mp_target_season);
+	bool my_neg_impact; // true if the mp can have a negative impact on a component when carried out
+	bool freq_sensitive; // true if the mp can have a negative impact on component when carried out too often
+	bool season_sensitive;// true if the mp can have a negative impact if not carried out during a specific season
+	list<string> my_target_seasons; // seasons during which the practice should be carried out or it will have a negative impact on "my_neg_impacted_attribute" or "my_neg_impacted_component"
+	string my_neg_impacted_component;
+	string my_neg_impacted_attribute;
+	
+	bool season_target_reached <- false;
+	bool freq_target_reached <- false;
+	
+	//some maintenance practices are season-dependent, i.e. they have a positive impact only if carried out during their target season(s) 
+	// this reflex checks if the season when the maintenance is carried out is the "correct" one
+	reflex check_season_criteria when: (current_date=starting_date) {
+		loop index_row from: 0 to: mp_season_map.rows -1 {
+			if mp_season_map[0,index_row] = practice_name { // find the row corresponding to the maintenance practice in the mp_season map
+				my_neg_impact <-mp_season_map[1,index_row];
+				freq_sensitive <- mp_season_map[2,index_row];
+				season_sensitive <- mp_season_map[3,index_row];
+				loop index_column from:4 to: 6 { // columns 4 to 6 store the targeted seasons in MP_Season.csv
+					add mp_season_map[index_column, index_row] to:my_target_seasons;
+				}
+				my_neg_impacted_component <- mp_season_map[7,index_row];
+				my_neg_impacted_attribute <- mp_season_map[8,index_row];
+			}
+		}
+	}
 	
 	// for each  maintenance practice created,create the list of linked_failures from failure_mp_map
 	// TODO: make sure that if a maintenance practice is created it should have a linked failure to it OR create another option..
-	reflex link_mp_to_failure when: current_date = starting_date {
-		//Loading mapping table between maintenance practices and failures
-		file mapping_mp_failure <- csv_file("../includes/MP_Failures.csv",";");
-		matrix mp_failure_map <- matrix(mapping_mp_failure);
+	reflex link_mp_to_failure when: (maintenance_type="programmed") and (current_date = starting_date) {
 		loop index_column from: 0 to: mp_failure_map.columns -1 {
 			if mp_failure_map[index_column,0] = practice_name { // find the column corresponding to the maintenance practice in the mp_failure map 
 				loop index_row from:1 to: mp_failure_map.rows-1{ // 
@@ -893,23 +915,25 @@ species programmed_maintenance {
 
 	reflex trigger_prog_maintenance when: (maintenance_type="programmed")and every(maintenance_frequency #week) and (current_date>starting_date){ 
 		days_maintained <- days_maintained +1;
-		ask agents of_generic_species vegetal_component {
-			if length(my_failures)>=1{
-				loop j over:my_failures {
-					loop i over:myself.linked_failures {
-						if j.my_name=i{
-							ask j {
-								myself.function_attributes[impacted_attribute] <- min(3,myself.function_attributes[impacted_attribute]+1);
-								//reset failure event frequency with maintenance date
-								 last_maintenance <- current_date; 
-								
-							}add j to:myself.processed_failures;
-						} 
-					}
-				}
-			}remove myself.processed_failures from:my_failures;
-		}
-		ask agents of_generic_species engineered_component {
+//		ask agents of_generic_species vegetal_component {
+//			if length(my_failures)>=1{
+//				loop j over:my_failures {
+//					loop i over:myself.linked_failures {
+//						if j.my_name=i{
+//							ask j {
+//								myself.function_attributes[impacted_attribute] <- min(3,myself.function_attributes[impacted_attribute]+1);
+//								
+//								//reset failure event frequency with maintenance date
+//								 last_maintenance <- current_date; 
+//								
+//							}
+//							add j to:myself.processed_failures;
+//						} 
+//					}
+//				}
+//			}remove myself.processed_failures from:my_failures;
+//		}
+		ask agents of_generic_species component {
 			if length(my_failures)>=1{	
 				loop j over:my_failures {
 					loop i over:myself.linked_failures {
@@ -929,17 +953,42 @@ species programmed_maintenance {
 				}
 			} remove myself.processed_failures from:my_failures;
 		}
+		// possible negative impact from maintenance practice if not carried out during target season
+		if (my_neg_impact=true) {	
+			if (season_sensitive=true) {
+				loop k over:my_target_seasons {
+					if current_season = k {	
+						season_target_reached <- true;
+					}
+				}
+			}
+			if (freq_sensitive=true){
+				ask agents of_generic_species component where (each.my_name=my_neg_impacted_component){
+					if (function_attributes[myself.my_neg_impacted_attribute] <= 2){
+						myself.freq_target_reached<-true;
+					}
+				}
+			}
+			if (season_target_reached = false and freq_target_reached=false){
+				ask agents of_generic_species component where (each.my_name=my_neg_impacted_component){
+					function_attributes[myself.my_neg_impacted_attribute]<-max(0,function_attributes[myself.my_neg_impacted_attribute]-1);
+					write "negative impact of " + myself.practice_name + " on " + myself.my_neg_impacted_attribute + " of " + myself.my_neg_impacted_component;
+				}
+				
+			}	
+
+		}
 
 	}
 
 }
 
 // run to failure maintenance agent
-species rtf_maintenance {
+species rtf_maintenance  {
 	component impacted_component;
 	date rtf_state_date <- starting_date; 
 	
-	reflex trigger_rtf_maintenance when: (current_date = rtf_state_date + intervention_delay_days #day ) and (rtf_state_date !=starting_date) and (maintenance_type = "run-to-failure") {
+	reflex trigger_rtf_maintenance when: (maintenance_type="run-to-failure") and (current_date = rtf_state_date + intervention_delay_days #day ) and (rtf_state_date !=starting_date) and (maintenance_type = "run-to-failure") {
 			days_maintained <- days_maintained +1;
 			ask agents of_generic_species vegetal_component where (each.my_name=impacted_component.my_name) {
 				function_attributes["my_health"] <- 3.0;
@@ -993,13 +1042,15 @@ experiment "run" type: gui {
 
 // Interface 
 experiment "Interface (EN)"	type: gui {
+	parameter "maintenance type" var:maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
 	output {
 		monitor "Accepted flood" value: days_accepted_flood;
 		monitor "Flooding" value: days_flooding;
 		monitor "Degraded vegetation days" value:days_vegetation_degraded;
 		monitor "Maintenance days" value:days_maintained;
 		display "Rain" type: 2d {
-			chart "Runoff" type: series y_label: "class" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
+			chart "Rain events" type: series y_label: "level" y2_label:"mm" y_range: {0,3.5} y2_range:{-120,0} y_tick_unit:1   y2_tick_unit:5 x_serie_labels:string(current_date,"dd MM yyyy"){
+				data "Rain" value:rain collect(each.rainfall) color:#lightblue line_visible:true style:line use_second_y_axis: true;
 				data "Runoff events" value:rain collect(each.runoff.my_flow) color:#blue line_visible:true marker_shape: marker_up_triangle ;
 				}
 		}
@@ -1034,11 +1085,10 @@ experiment "Interface (EN)"	type: gui {
 //		}
 		display "Vegetation cover" type: 2d {
 			chart "Vegetation cover evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
-				data "Grass Health" value:grass collect (each.function_attributes["my_health"]) color: #lightgreen marker_shape: marker_down_triangle;
-				data "Shrubs Health" value:shrubs_plants collect (each.function_attributes["my_health"]) color: #orange marker_shape: marker_down_triangle;
 				data "Tree Health" value:trees collect (each.function_attributes["my_health"]) color: #pink marker_shape: marker_down_triangle;
-				//data "Health" value:vegetation_cover collect (each.function_attributes["my_health"]) color: #darkblue marker_shape: marker_down_triangle;
-				data "Diversity" value:vegetation_cover collect (each.function_attributes["my_diversity"])color: #thistle style: dot;
+				data "Main vegetation cover health" value:vegetation_cover collect (each.function_attributes["my_health"]) color: #darkblue marker_shape: marker_down_triangle;
+				data "Main vegetation cover diversity" value:vegetation_cover collect (each.function_attributes["my_diversity"])color: #thistle style: dot;
+				
 			}
 		}
 		display "Performance" type: 2d {
