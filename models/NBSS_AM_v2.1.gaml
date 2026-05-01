@@ -87,7 +87,7 @@ global {
 		
 	// maintenance parameters 
 	string maintenance_type <- "programmed";// parameter: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
-	int intervention_delay_days <- 5 parameter:true  min:2 max: 30;
+	int intervention_delay_days <- 5;// parameter:true  min:2 max: 30;
 	
 	//performance parameters
 	int days_maintained <- 0;

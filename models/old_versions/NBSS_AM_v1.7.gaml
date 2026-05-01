@@ -66,14 +66,14 @@ global {
 	bool static_arrows<-true;
 	
 	// failure parameters
-	bool weather_failures_active <- true parameter: true;
-	bool internal_failures_active <- true parameter: true;
-	bool external_failures_active <- false parameter: true;
+	bool weather_failures_active <- true ;
+	bool internal_failures_active <- true;
+	bool external_failures_active <- false ;
 
 	
 	// maintenance parameters 
-	string maintenance_type <- "no maintenance" parameter: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
-	int intervention_delay_days <- 5 parameter:true  min:2 max: 30;
+	string maintenance_type <- "no maintenance";// parameter: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
+	int intervention_delay_days <- 5;// parameter:true  min:2 max: 30;
 
 	
 	init {

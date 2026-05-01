@@ -44,8 +44,8 @@ global {
 	bool static_arrows<-true;
 	
 	// maintenance parameters 
-	string maintenance_type <- "no maintenance" parameter: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
-	int intervention_delay_days <- 5 parameter:true  min:2 max: 30;
+	string maintenance_type <- "no maintenance";// parameter: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
+	int intervention_delay_days <- 5;// parameter:true  min:2 max: 30;
 
 	
 	init {
