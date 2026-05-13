@@ -37,6 +37,9 @@ model NBSSAM
 global {
 	int price <- 0;
 	int time_since_last_water <- 5; //à définir
+	bool is_failure_event <- false;
+	geometry zone_NBSS <- rectangle(30, 20) at_location global_zone.location; // zone NBSS
+	geometry global_zone <- rectangle(50,40);
 	float step <-1 #day;
 	float step1 <- 1.0;
 	
@@ -109,7 +112,17 @@ global {
 		// Initialization of NBSS and all its components :
 		create NBSS {
 			my_name <- "Swale1";
+			location <- {25.0, 25.0, 0.0};
+			write global_zone.location;
 			create inlet {
+				//location <- any_location_in(zone_NBSS.contour) + {0.0, 0.0, 1.0};
+				location <- any_location_in(line(zone_NBSS.points));
+//				loop while: (self distance_to one_of(inlet)) < 0.5 {
+//				    location <- any_location_in(line(zone_NBSS.points));
+//				}
+				
+				//write zone_NBSS.contour;
+				write location;
 				my_name<-"inlet";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -127,6 +140,7 @@ global {
 				}
 			}
 			create ponding_area  {
+				location <- zone_NBSS.location + {0.0, 0.0, 1.0};
 				my_name<-"ponding_area";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -147,12 +161,20 @@ global {
 			create vegetation_cover {
 				my_name<-"vegetation_cover";
 				my_NBSS<- myself;
+				create grass number: rnd(0, 20) {
+					location <- any_location_in(zone_NBSS);
+				}
+				create shrubs_plants number: rnd(0,3) {
+					location <- any_location_in(zone_NBSS);
+				}
 			}
 			create trees {
 				my_name <- "trees";
 				my_NBSS<- myself;
+				location <- any_location_in(zone_NBSS) + {0.0, 0.0, 1.0};
 			}
 			create filter_media {
+				location <- zone_NBSS.location + {0.0, 0.0, -1.0};
 				my_name<-"filter_media";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -172,6 +194,10 @@ global {
 		
 			
 			create outlet{
+				location <- any_location_in(zone_NBSS.contour);
+				loop while: (self distance_to one_of(inlet)) < 0.5 {
+				    location <- any_location_in(zone_NBSS.contour);
+				}
 				my_name <- "outlet";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -228,7 +254,13 @@ global {
 				impacted_attribute::string(get("impacted_attribute")),
 					my_threshold::int(get("threshold"))
 
-			];		
+			];
+		create trash number: rnd(0,10) {
+			location <- any_location_in(global_zone);
+		}
+		create weeds number: rnd(0,10) {
+			location <- any_location_in(global_zone);
+		}		
 
 		// The maintenance_practices.csv file contains maintenance practices parameters
 		// Here I am creating as many maintenance practice agent as there are lines in the CSV file. 
@@ -246,7 +278,9 @@ global {
 			create rtf_maintenance;
 		}
 		
-	}	
+		
+	}
+		
 	
 	reflex NBSS_functioning{
 			// first, compute inlet output flow and associated pollutant loads with runoff as input flow
@@ -266,6 +300,34 @@ global {
 }
 
 //************************ SPECIES DECLARATION ***************************
+/* Added species for VR sim */
+species trash {
+	aspect default {
+		draw circle(1) border:#black color:#red;
+	}
+}
+
+species weeds {
+	aspect default {
+		draw circle(1) border:#black color:#green;
+	}
+}
+
+species gravel parent: NBSS {
+	aspect default {
+		draw rectangle(80,55) border:#black color:#black;
+		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -31, -2} anchor: #top_center;
+	}
+}
+
+//species microorganisms parent: filter_media {} //also bees, pollen, different kinds of plants
+
+species vegetal_waste {
+	aspect default {
+		draw square(3) border:#black color:#red;
+	}
+}
+
 /* Declaration of the rain species */
 species rain {
 	float rainfall;
@@ -315,10 +377,13 @@ species NBSS {
 	
 
 
+	
 	aspect default {
-		draw rectangle(80,55) border:#black color:#white;
+		draw rectangle(30, 20) color: #white;
+		//draw rectangle(80,55) border:#black color:#white;
 		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -31, 1} anchor: #top_center;
 	}
+	
 
 }
 
@@ -441,6 +506,10 @@ species ponding_area parent: engineered_component {
 
 /************************************************** FILTER MEDIA **********************************************/
 species filter_media parent: engineered_component {
+	aspect default {
+		draw rectangle(30, 20) color: #pink;
+	}
+	
 	float partpoll_acc <- 0.0;
 	
 	// sediment accumulation dynamic = 0.3 cm/year (Chabert et al., 2025) 
@@ -574,24 +643,25 @@ species vegetal_component parent: component {
 
 /***************************************************** GRASS *******************************************/
 
-//species grass parent: vegetal_component {
-//
-//	aspect default {
-//		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -5, 1} anchor: #top_center;
-//	}
-//}
-//
-///***************************************************** SHRUBS and PLANTS *******************************************/
-//
-//species shrubs_plants parent: vegetal_component {
-//	
-//	aspect default {
-//		//draw rectangle(10,10) at: my_surface.location + {0,-5,1};
-//		//draw shrubs_plants_image size: {20.0, 12.0, 0.0} at: my_surface.location + {8, -8, 1};
-//		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -8, 1} anchor: #top_center;
-//	}
-//	
-//}
+species grass parent: vegetal_component {
+	map <string,int> function_attributes <- ["my_health"::3,"my_diversity"::3];
+	aspect default {
+		draw square(1) border: #black color: #lightgreen;
+		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -5, 1} anchor: #top_center;
+	}
+}
+
+/***************************************************** SHRUBS and PLANTS *******************************************/
+
+species shrubs_plants parent: vegetal_component {
+	map <string,int> function_attributes <- ["my_health"::3,"my_diversity"::3];
+	aspect default {
+		//draw rectangle(10,10) at: my_surface.location + {0,-5,1};
+		//draw shrubs_plants_image size: {20.0, 12.0, 0.0} at: my_surface.location + {8, -8, 1};
+		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -8, 1} anchor: #top_center;
+	}
+	
+}
 
 /***************************************************** TREES *******************************************/
 
@@ -607,7 +677,7 @@ species trees parent: vegetal_component {
 // Vegetation cover , can be made of one or multiple vegetal components
 species vegetation_cover parent: component {
 	map <string,int> function_attributes <- ["my_health"::3,"my_diversity"::3];
-	bool invasive <- false;
+	bool invasive <- false; //!!! weeds nécessaire ?
 
 	// when the vegetation cover's global health reaches 1, it impacts the filter media "my_fqt" attribute by -0.25 every month
 	reflex unhealthy_veg when: (function_attributes["my_health"]<=1) and every(1 #month) {
@@ -716,6 +786,7 @@ species failure_event{
 			function_attributes[failure.impacted_attribute] <- max(0,function_attributes[failure.impacted_attribute]-1);
 			failure.last_failure <- current_date;
 			add myself to:self.my_failures;
+			is_failure_event <- true;
 		}
 	}
 	
