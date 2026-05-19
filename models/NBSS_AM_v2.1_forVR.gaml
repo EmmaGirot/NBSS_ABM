@@ -35,11 +35,21 @@ model NBSSAM
 
 //******************** GLOBAL *****************************************
 global {
+	// gestion espace libre
+	
+	//geometry free_space <- copy(shape);
+	geometry init_free_space <- rectangle(100,100);
+	geometry free_space <- init_free_space;
+	
+	//geometry free_space;
+	
+	
+	
 	int price <- 0;
 	int time_since_last_water <- 5; //à définir
 	bool is_failure_event <- false;
-	geometry zone_NBSS <- rectangle(30, 20) at_location global_zone.location; // zone NBSS
-	geometry global_zone <- rectangle(50,40);
+	//geometry zone_NBSS <- rectangle(30, 20) at_location global_zone.location; // zone NBSS
+	//geometry global_zone <- rectangle(50,40);
 	float step <-1 #day;
 	float step1 <- 1.0;
 	
@@ -102,6 +112,22 @@ global {
 	
 	init {
 		
+//		point pt1 <- {25, 25};
+//		point pt2 <- {100, 25};
+//		point pt3 <- {100, 100};
+//		point pt4 <- {25, 100};
+//		
+//		free_space <- union([
+//		    pt1 buffer 15,
+//		    pt2 buffer 15,
+//		    pt3 buffer 15,
+//		    pt4 buffer 15,
+//		    line([pt1, pt2]) + 8,
+//		    line([pt2, pt3]) + 8,
+//		    line([pt3, pt4]) + 8,
+//		    line([pt4, pt1]) + 8
+//		]);
+		
 		// Initialization of Rain agent : 
 		create rain {
 			create managed_flow{
@@ -111,18 +137,32 @@ global {
 		}
 		// Initialization of NBSS and all its components :
 		create NBSS {
+			shape <- rectangle(30, 20);
+			location <- any_location_in(free_space);
+			//location <- {location.x, location.y, location.z - 1.0};
+			free_space <- free_space - (shape + 0.5);
+			
 			my_name <- "Swale1";
-			location <- {25.0, 25.0, 0.0};
-			write global_zone.location;
+			//location <- {25.0, 25.0, 0.0};
+			//write global_zone.location;
+			create swale number: 2 { // faire apparaître la tranchée
+				shape <- rectangle(30, 6);
+				list<point> list_of_positions <- [{myself.location.x, myself.location.y + 7, myself.location.z}, {myself.location.x, myself.location.y - 7, myself.location.z}];
+				location <- list_of_positions[index];
+				free_space <- free_space - (shape + 0.5);
+			}
+			
 			create inlet {
+				shape <- circle(1);
+				location <- {myself.location.x - 13.0, myself.location.y, 0};
+				free_space <- free_space - (shape + 0.5);
 				//location <- any_location_in(zone_NBSS.contour) + {0.0, 0.0, 1.0};
-				location <- any_location_in(line(zone_NBSS.points));
+				//location <- any_location_in(line(zone_NBSS.points));
 //				loop while: (self distance_to one_of(inlet)) < 0.5 {
 //				    location <- any_location_in(line(zone_NBSS.points));
 //				}
 				
 				//write zone_NBSS.contour;
-				write location;
 				my_name<-"inlet";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -140,7 +180,10 @@ global {
 				}
 			}
 			create ponding_area  {
-				location <- zone_NBSS.location + {0.0, 0.0, 1.0};
+				shape <- rectangle(30, 8);
+				location <- {myself.location.x, myself.location.y, 0}; //z+1.75
+				free_space <- free_space - (shape + 0.5);
+				
 				my_name<-"ponding_area";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -162,19 +205,25 @@ global {
 				my_name<-"vegetation_cover";
 				my_NBSS<- myself;
 				create grass number: rnd(0, 20) {
-					location <- any_location_in(zone_NBSS);
+					//location <- any_location_in(zone_NBSS);
 				}
 				create shrubs_plants number: rnd(0,3) {
-					location <- any_location_in(zone_NBSS);
+					//location <- any_location_in(zone_NBSS);
 				}
 			}
 			create trees {
+				
+				
 				my_name <- "trees";
 				my_NBSS<- myself;
-				location <- any_location_in(zone_NBSS) + {0.0, 0.0, 1.0};
+				//location <- any_location_in(zone_NBSS) + {0.0, 0.0, 1.0};
 			}
 			create filter_media {
-				location <- zone_NBSS.location + {0.0, 0.0, -1.0};
+				//location <- zone_NBSS.location + {0.0, 0.0, -1.0};
+				shape <- rectangle(30,20);
+				location <- {myself.location.x, myself.location.y, myself.location.z-1.0};
+				free_space <- free_space - (shape + 0.5);
+				
 				my_name<-"filter_media";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -194,10 +243,14 @@ global {
 		
 			
 			create outlet{
-				location <- any_location_in(zone_NBSS.contour);
-				loop while: (self distance_to one_of(inlet)) < 0.5 {
-				    location <- any_location_in(zone_NBSS.contour);
-				}
+				//location <- any_location_in(zone_NBSS.contour);
+//				loop while: (self distance_to one_of(inlet)) < 0.5 {
+//				    location <- any_location_in(zone_NBSS.contour);
+//				}
+				shape <- circle(1);
+				location <- {myself.location.x + 13.0, myself.location.y, 0};
+				free_space <- free_space - (shape + 0.5);
+				
 				my_name <- "outlet";
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
@@ -213,6 +266,11 @@ global {
 					my_component <- myself;
 					myself.my_output_unmanaged_flow <- self;
 				}
+			}
+			create gravel {
+				shape <- rectangle(30,20);
+				location <- {myself.location.x, myself.location.y, myself.location.z-2.0};
+				free_space <- free_space - (shape + 0.5);
 			}
 			my_components <- my_engineered_components union my_vegetal_components;	
 			
@@ -256,10 +314,10 @@ global {
 
 			];
 		create trash number: rnd(0,10) {
-			location <- any_location_in(global_zone);
+			//location <- any_location_in(global_zone);
 		}
 		create weeds number: rnd(0,10) {
-			location <- any_location_in(global_zone);
+			//location <- any_location_in(global_zone);
 		}		
 
 		// The maintenance_practices.csv file contains maintenance practices parameters
@@ -387,6 +445,10 @@ species NBSS {
 
 }
 
+species swale parent: NBSS {
+	
+}
+
 /* Declaration of the parent species component */
 species component {
 	NBSS my_NBSS; //to which NBSS this component belongs	
@@ -506,9 +568,9 @@ species ponding_area parent: engineered_component {
 
 /************************************************** FILTER MEDIA **********************************************/
 species filter_media parent: engineered_component {
-	aspect default {
-		draw rectangle(30, 20) color: #pink;
-	}
+//	aspect default {
+//		draw rectangle(30, 20) color: #pink;
+//	}
 	
 	float partpoll_acc <- 0.0;
 	
@@ -539,10 +601,10 @@ species filter_media parent: engineered_component {
 		
 	}
 
-	aspect default {
-		draw rectangle(30,5) border:#sienna color:my_color;
-		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location anchor: #center;
-	}
+//	aspect default {
+//		draw rectangle(30,5) border:#sienna color:my_color;
+//		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location anchor: #center;
+//	}
 }
 
 
@@ -1113,6 +1175,8 @@ experiment "run" type: gui {
 	
 }
 
+//TODO: display the environment with the different species so that xp is the one used in VR gama file
+
 // Interface 
 experiment "Interface (EN)"	type: gui {
 	parameter "maintenance type" var:maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
@@ -1121,6 +1185,11 @@ experiment "Interface (EN)"	type: gui {
 		monitor "Flooding" value: days_flooding;
 		monitor "Degraded vegetation days" value:days_vegetation_degraded;
 		monitor "Maintenance days" value:days_maintained;
+		display map {
+			graphics "free_area" {
+				draw free_space color: #lightgreen;
+			}
+		}
 		display "Rain" type: 2d {
 			chart "Rain events" type: series y_label: "level" y2_label:"mm" y_range: {0,3.5} y2_range:{-120,0} y_tick_unit:1   y2_tick_unit:5 x_serie_labels:string(current_date,"dd MM yyyy"){
 				data "Rain" value:rain collect(each.rainfall) color:#lightblue line_visible:true style:line use_second_y_axis: true;

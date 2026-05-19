@@ -38,12 +38,15 @@ species unity_linker parent: abstract_unity_linker {
 	unity_property up_weeds;
 	unity_property up_gravel;
 	unity_property up_microorganisms;
-	list<point> init_locations <- define_init_locations();
+	unity_property up_swale;
+	//list<point> init_locations <- define_init_locations();
 
-	list<point> define_init_locations {
-		return [{50.0,50.0,0.0}];
-	}
+//	list<point> define_init_locations {
+//		return [{50.0,50.0,0.0}];
+//	}
 
+	bool do_send_world <- true;
+	list<point> init_locations <- [any_location_in(init_free_space) + {0,0,1}];
 
 	init {
 		do define_properties;
@@ -62,15 +65,17 @@ species unity_linker parent: abstract_unity_linker {
 //		do add_background_geometries(failure_event,up_failure_event);
 //		do add_background_geometries(rtf_maintenance,up_rtf_maintenance);
 		//do add_background_geometries(urban_environment,up_urban_environment);
-		//do add_background_geometries(ponding_area,up_ponding_area);
+		do add_background_geometries(ponding_area,up_ponding_area);
+		do add_background_geometries(filter_media, up_filter_media);
 //		do add_background_geometries(managed_flow,up_managed_flow);
 //		do add_background_geometries(unmanaged_flow,up_unmanaged_flow);
 //		do add_background_geometries(output_flow,up_output_flow);
 		
 		//
 		//do add_background_geometries(microorganisms, up_microorganisms);
-		//do add_background_geometries(gravel, up_gravel);
-		do add_background_geometries(NBSS, up_NBSS);
+		do add_background_geometries(gravel, up_gravel);
+		//do add_background_geometries(NBSS, up_NBSS);
+		do add_background_geometries(swale, up_swale);
 	}
 	action define_properties {
 //		unity_aspect sewer_system_aspect <- geometry_aspect(1.0,#gray,precision);
@@ -78,7 +83,7 @@ species unity_linker parent: abstract_unity_linker {
 //		unity_properties << up_sewer_system;
 
 
-		unity_aspect filter_media_aspect <- geometry_aspect(1.0,#gray,precision);
+		unity_aspect filter_media_aspect <- geometry_aspect(1.0,#saddlebrown,precision);
 		up_filter_media <- geometry_properties("filter_media","filter_media",filter_media_aspect,#ray_interactable,false);
 		unity_properties << up_filter_media;
 
@@ -137,7 +142,7 @@ species unity_linker parent: abstract_unity_linker {
 		up_weeds <- geometry_properties("weeds","weeds",weeds_aspect,#ray_interactable,false);
 		unity_properties << up_weeds;
 		
-		unity_aspect gravel_aspect <- geometry_aspect(1.0, #black, precision); //à voir si je définis la sous-couche en prefab ou non
+		unity_aspect gravel_aspect <- geometry_aspect(1.0, #slategrey, precision); //à voir si je définis la sous-couche en prefab ou non
 		up_gravel <- geometry_properties("gravel","gravel",gravel_aspect,#no_interaction,false);
 		unity_properties << up_gravel;
 		
@@ -146,7 +151,7 @@ species unity_linker parent: abstract_unity_linker {
 //		unity_properties << up_microorganisms;
 
 
-		unity_aspect inlet_aspect <- geometry_aspect(2.0,#lightgray,precision);
+		unity_aspect inlet_aspect <- geometry_aspect(0.75,#green,precision);
 		up_inlet <- geometry_properties("inlet","inlet",inlet_aspect,#ray_interactable,false);
 		unity_properties << up_inlet;
 
@@ -161,9 +166,13 @@ species unity_linker parent: abstract_unity_linker {
 		unity_properties << up_natural_environment;
 
 
-		unity_aspect NBSS_aspect <- geometry_aspect(3.0,#gray,precision);
+		unity_aspect NBSS_aspect <- geometry_aspect(2.0,#gray,precision);
 		up_NBSS <- geometry_properties("NBSS","NBSS",NBSS_aspect,#ray_interactable,false);
 		unity_properties << up_NBSS;
+		
+		unity_aspect swale_aspect <- geometry_aspect(1.0,#lawngreen,precision);
+		up_swale <- geometry_properties("swale","swale",swale_aspect,#ray_interactable,false);
+		unity_properties << up_swale;
 
 
 		unity_aspect default_aspect <- geometry_aspect(1.0,#gray,precision);
@@ -201,7 +210,7 @@ species unity_linker parent: abstract_unity_linker {
 //		unity_properties << up_rtf_maintenance;
 
 
-		unity_aspect outlet_aspect <- geometry_aspect(1.0,#gray,precision);
+		unity_aspect outlet_aspect <- geometry_aspect(0.75,#red,precision);
 		up_outlet <- geometry_properties("outlet","outlet",outlet_aspect,#ray_interactable,false);
 		unity_properties << up_outlet;
 
@@ -211,7 +220,7 @@ species unity_linker parent: abstract_unity_linker {
 		unity_properties << up_urban_environment;
 
 
-		unity_aspect ponding_area_aspect <- geometry_aspect(1.0, #blue, precision);
+		unity_aspect ponding_area_aspect <- geometry_aspect(0.5, #blue, precision);
 		up_ponding_area <- geometry_properties("ponding_area","ponding_area",ponding_area_aspect,#no_interaction,false);
 		unity_properties << up_ponding_area;
 
@@ -223,7 +232,7 @@ species unity_linker parent: abstract_unity_linker {
 		do add_geometries_to_send(outlet,up_outlet);
 		do add_geometries_to_send(inlet, up_inlet);
 		//do add_geometries_to_send(NBSS,up_NBSS);
-		do add_geometries_to_send(filter_media,up_filter_media);
+		//do add_geometries_to_send(filter_media,up_filter_media);
 		
 		//
 		do add_geometries_to_send(shrubs_plants, up_shrubs_plants);
@@ -232,6 +241,7 @@ species unity_linker parent: abstract_unity_linker {
 		do add_geometries_to_send(weeds, up_weeds);
 		do add_geometries_to_send(vegetal_waste,up_vegetal_waste);
 	}
+	
 	
 	// Maintenance practices and their impact on biodiv/costs/vegetation health
 	action maintenance_remove(string id) {
@@ -267,9 +277,9 @@ species unity_linker parent: abstract_unity_linker {
 		}
 	}
 	action water_plants(string id) {
-		if (current_season = "summer" and time_since_last_water >= 2) {
+		//if (current_season = "summer" and time_since_last_water >= 2) {
 			// si trop arrosée, perds de la santé, sinon en gagne (et affecte apparence plantes) aussi dépend des saisons
-		}
+		//}
 	}
 	action mow_grass_trees(string id) {
 		agent ag <- (trees + grass) first_with(each.name = id);
@@ -317,17 +327,30 @@ species unity_player parent: abstract_unity_player{
 			draw player_perception_cone() color: rgb(color, 0.5);
 		}
 	}
+	
+	reflex stay_in_bounds { // marche pas
+        if !(init_free_space overlaps self) {
+            write "out of bounds";
+            location <- closest_points_with(init_free_space.location, self)[0]; // ou 1
+        }
+    }
 }
 
 experiment vr_xp parent:"Interface (EN)" autorun: false type: unity {
 	float minimum_cycle_duration <- 0.1;
 	string unity_linker_species <- string(unity_linker);
-	list<string> displays_to_hide <- ["Flooding","Degraded vegetation days","Maintenance days","Accepted flood"];
+	list<string> displays_to_hide <- ["Rain", "Inlet", "Ponding area", "Vegetation cover", "Filter media", "Performance", map];
 	float t_ref;
 
 	action create_player(string id) {
 		ask unity_linker {
 			do create_player(id);
+			
+			do build_invisible_walls(player: last(unity_player), //player to send the information to
+			id: "wall_for_free_area", //id of the walls
+			height: 40.0, //height of the walls
+			wall_width: 1.0, //width of the walls
+			geoms: [init_free_space]);
 		}
 	}
 
@@ -340,7 +363,7 @@ experiment vr_xp parent:"Interface (EN)" autorun: false type: unity {
 	}
 
 	output {
-		 display Rain_VR parent:"Rain" {
+		 display map_VR parent: map {
 			 species unity_player;
 			 event #mouse_down{
 				 float t <- gama.machine_time;
