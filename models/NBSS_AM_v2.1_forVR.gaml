@@ -138,7 +138,7 @@ global {
 		// Initialization of NBSS and all its components :
 		create NBSS {
 			shape <- rectangle(30, 20);
-			location <- any_location_in(free_space);
+			location <- any_location_in(free_space buffer -15.0);
 			//location <- {location.x, location.y, location.z - 1.0};
 			free_space <- free_space - (shape + 0.5);
 			
@@ -506,6 +506,7 @@ species engineered_component parent: component {
 
 /********************************************** INLET ***************************************/
 species inlet parent: engineered_component {
+	int type <- function_attributes["my_fqt"];
 	
 	aspect default {
 		draw circle(4) border:#black color:my_color;
@@ -846,6 +847,14 @@ species failure_event{
 	action failure_impact (failure_event failure) {
 		ask agents of_generic_species component where (each.my_name=failure.impacted_agent){
 			function_attributes[failure.impacted_attribute] <- max(0,function_attributes[failure.impacted_attribute]-1);
+			// debug
+			write function_attributes[failure.impacted_attribute];
+			write failure.impacted_agent;
+			if self is inlet {
+				write inlet(self).type;
+				write function_attributes["my_fqt"];
+			}
+			// fin debug
 			failure.last_failure <- current_date;
 			add myself to:self.my_failures;
 			is_failure_event <- true;
@@ -1179,7 +1188,8 @@ experiment "run" type: gui {
 
 // Interface 
 experiment "Interface (EN)"	type: gui {
-	parameter "maintenance type" var:maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
+	//parameter "maintenance type" var:maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
+	parameter "maintenance type" var:maintenance_type among:["no maintenance"];
 	output {
 		monitor "Accepted flood" value: days_accepted_flood;
 		monitor "Flooding" value: days_flooding;
