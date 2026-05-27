@@ -15,4 +15,11 @@
 		<nature>org.eclipse.xtext.ui.shared.xtextNature</nature>
 		<nature>msi.gama.application.gamaNature</nature>
 	</natures>
+	<linkedResources>
+		<link>
+			<name>external/2_swales.shp</name>
+			<type>1</type>
+			<location>C:/Users/swroy/Downloads/GQIS_map_+_raindata/GIS_2 Swales/2_swales.shp</location>
+		</link>
+	</linkedResources>
 </projectDescription>
