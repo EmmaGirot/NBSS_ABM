@@ -125,7 +125,8 @@ global {
 		create road from: shape_file_roads;
 
 		create NBSS from: shape_file_swales {
-			my_name <- "Swale_" + string(index);
+			nbss_id <- index + 1;
+			my_name <- "Swale_" + string(nbss_id);
 			create inlet {
 				my_name<-"inlet";
 				my_NBSS<- myself;
@@ -143,6 +144,7 @@ global {
 	
 				}
 			}
+			
 			create ponding_area  {
 				my_name<-"ponding_area";
 				my_NBSS<- myself;
@@ -208,6 +210,23 @@ global {
 			my_components <- my_engineered_components union my_vegetal_components;	
 			
 		}
+		if length(NBSS) = 2 {
+	ask one_of(NBSS where (each.nbss_id = 1)) {
+		downstream_nbss <- one_of(NBSS where (each.nbss_id = 2));
+	}
+	ask one_of(NBSS where (each.nbss_id = 2)) {
+		upstream_nbss <- one_of(NBSS where (each.nbss_id = 1));
+	}
+}
+	ask one_of(NBSS where (each.nbss_id = 1)) {
+	local_runoff_in <- 10.0;
+	inlet_condition <- 0.5; // partially clogged upstream swale
+}
+	ask one_of(NBSS where (each.nbss_id = 2)) {
+	local_runoff_in <- 10.0;
+	inlet_condition <- 1.0; // normal downstream swale
+}
+
 		create urban_environment {
 			my_name <- "Urban environment";
 			create unmanaged_flow{
@@ -275,7 +294,31 @@ global {
 			}
 	
 		}
-			
+	
+	reflex debug_2swale_transfer {
+	write "---- 2-swale test ----";
+	ask NBSS {
+		write my_name 
+			+ " | local_runoff_in=" + string(local_runoff_in)
+			+ " | upstream_outflow_in=" + string(upstream_outflow_in)
+			+ " | total_inflow=" + string(total_inflow)
+			+ " | outflow_to_next=" + string(outflow_to_next)
+			+ " | inlet_condition=" + string(inlet_condition);
+	}
+}
+
+	reflex debug_2swale_transfer {
+	write "---- 2-swale test ----";
+	ask NBSS {
+		write my_name 
+			+ " | local_runoff_in=" + string(local_runoff_in)
+			+ " | upstream_outflow_in=" + string(upstream_outflow_in)
+			+ " | total_inflow=" + string(total_inflow)
+			+ " | outflow_to_next=" + string(outflow_to_next)
+			+ " | inlet_condition=" + string(inlet_condition);
+	}
+}
+		
 	reflex stop_simulation when: current_date > end_date {
 		end_sim<-true;
 		do pause;
@@ -321,6 +364,17 @@ species rain {
 /* Declaration of the species NBSS */
 species NBSS {
 	string my_name;
+	int nbss_id;
+	NBSS upstream_nbss;
+	NBSS downstream_nbss;
+
+	float local_runoff_in <- 0.0;
+	float upstream_outflow_in <- 0.0;
+	float total_inflow <- 0.0;
+	float outflow_to_next <- 0.0;
+
+	float inlet_condition <- 1.0;
+
 	inlet my_inlet; 
 	ponding_area my_ponding_area;
 	filter_media my_filter_media; 
