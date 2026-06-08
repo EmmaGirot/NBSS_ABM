@@ -222,14 +222,10 @@ global {
 		
 
 	ask NBSS where (each.nbss_id = 2) {
-	local_runoff_in <- 10.0;
-	inlet_condition <- 1.0; // normal downstream swale
 	add self to:ordered_nbss;
 }
 
 	ask NBSS where (each.nbss_id = 1) {
-	local_runoff_in <- 10.0;
-	inlet_condition <- 0.5; // partially clogged upstream swale
 	add self to:ordered_nbss;
 }
 write "NBSS from up to downstream : "+ordered_nbss;
@@ -300,14 +296,14 @@ write "NBSS from up to downstream : "+ordered_nbss;
 	reflex debug_2swale_transfer {
 	write "---- 2-swale test ----";
 	
-	
-	ask NBSS where (each.nbss_id=2) {
-	write "outflow from the first NBSS (nbss2) : " + outflow_to_next;
-	}
+//	
+//	ask NBSS where (each.nbss_id=2) {
+//	write "outflow from the first NBSS (nbss2) : " + outflow_to_next;
+//	}
 	
 	ask NBSS where (each.nbss_id=1) {
 	write "inflow from the first NBSS (nbss2) to the second (nbss1) : " + managed_outflow_to_consider;
-	write "inflow from the runoff for the second NBSS (nbss1) : " + inflow_to_consider ;
+	write "inflow from the runoff and unmanaged outflow of the NBSS2 for the second NBSS (nbss1) : " + inflow_to_consider ;
 	write "total inflow for NBSS1 (runoff and from nbss2) : "+total_inflow;
 	}
 
@@ -372,13 +368,11 @@ species NBSS {
 	string my_hydro_fct;
 	float my_surface;
 
-	float local_runoff_in <- 0.0;
+	//float local_runoff_in <- 0.0;
 	float inflow_to_consider <- 0.0;
 	float managed_outflow_to_consider <- 0.0;
 	float total_inflow <- 0.0;
 	float outflow_to_next <- 0.0;
-
-	float inlet_condition <- 1.0;
 
 	inlet my_inlet; 
 	ponding_area my_ponding_area;
@@ -468,18 +462,22 @@ species component {
 		matrix data <- matrix(output_flow_LT_file);
 		
 			
-		//if inlet of the most upstream NBSS, we can have the runoff flow
-		if my_upstream_comp=nil {
-			my_NBSS.local_runoff_in<-current_inflow;	
-		}
+//		//if inlet of the most upstream NBSS, local_runoff_in is the runoff flow
+//		if my_upstream_comp=nil {
+//			my_NBSS.local_runoff_in<-current_inflow;	
+//		}
 			
 		//add the integration of connected NBSS
+		// the downstream NBSS collects flow from : 
+		// - managed outflow of upstream NBSS outlets
+		// - unmanaged outflows of upstream NBSS inlets and ponding areas
+		// - runoff 
 		if my_NBSS.my_upstream_NBSS!=nil and my_upstream_comp=nil {
-			// rules for outflow to consider when there is more than one upstream NBSS 
-			// first we have to consider the managed outflow of upstream NBSS
+			// rules for outflow to consider by downstream NBSS when there is more than one upstream NBSS 
+			// first we have to consider the managed outflow of the upstream NBSS outlets
 			float managed_outflow_to_consider; 
 			// if all upstream NBSS all have an outflow value of 2, the total outflow to consider is 3
-			if (length(distinct(my_NBSS.my_upstream_NBSS)))=1 {
+			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_outlet.my_output_managed_flow.my_flow))))=1 {
 				if (any(my_NBSS.my_upstream_NBSS collect (each.my_outlet.my_output_managed_flow.my_flow)))=2 {
 					managed_outflow_to_consider <-3;
 				}
@@ -487,18 +485,30 @@ species component {
 			//otherwise, if the outflow values of the upstream NBSS are different, take the maximum value
 			else {managed_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_outlet.my_output_managed_flow.my_flow);}
 			
-			
-			
-			// then we have to consider the unmanaged outflow of upstream NBSS that will be added to runoff
-			// same rules as managed outflow apply for unmanaged outflow 
-			float unmanaged_outflow_to_consider; 
-			if (length(distinct(my_NBSS.my_upstream_NBSS)))=1 {
-				if (any(my_NBSS.my_upstream_NBSS collect (each.my_outlet.my_output_unmanaged_flow.my_flow)))=2 {
-					unmanaged_outflow_to_consider <-3;
+			// then we have to consider the unmanaged outflow of upstreams NBSS 
+			// unmanaged outflow can come from stormwater that didn't go through the inlet or stormwater that overflowed from ponding area (unmanaged outflow from outlet is managed by ponding area)
+			// same rules as managed outflow apply for unmanaged inlet outflow  and unmanaged pa outflow
+			float unmanaged_inlet_outflow_to_consider; 
+			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_inlet.my_output_unmanaged_flow.my_flow))))=1{
+				if (any(my_NBSS.my_upstream_NBSS collect (each.my_inlet.my_output_unmanaged_flow.my_flow)))=2 {
+					unmanaged_inlet_outflow_to_consider <-3;
 				}
 			}
-			else {unmanaged_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_outlet.my_output_unmanaged_flow.my_flow);}
+			else {unmanaged_inlet_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_inlet.my_output_unmanaged_flow.my_flow);}
+			float unmanaged_pa_outflow_to_consider;		
+			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_ponding_area.my_output_unmanaged_flow.my_flow))))=1{
+				if (any(my_NBSS.my_upstream_NBSS collect (each.my_ponding_area.my_output_unmanaged_flow.my_flow)))=2 {
+					unmanaged_pa_outflow_to_consider <-3;
+				}
+			}
+			else {unmanaged_pa_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_ponding_area.my_output_unmanaged_flow.my_flow);}
 			
+			//then the total unmanaged outflow to consider follows the same rule as above with the inlet unmanaged and ponding area unmanaged outflows
+			float unmanaged_outflow_to_consider;
+			if (unmanaged_inlet_outflow_to_consider=unmanaged_pa_outflow_to_consider and unmanaged_pa_outflow_to_consider=2){
+				unmanaged_outflow_to_consider <- 3;
+				}
+			else {unmanaged_outflow_to_consider <-max(unmanaged_inlet_outflow_to_consider,unmanaged_pa_outflow_to_consider);}	
 			
 			// then we have to add the unmanaged_outflow_to_consider to the current_inflow (runoff) (same rule as above)
 			float inflow_to_consider;
@@ -522,7 +532,7 @@ species component {
 		
 		//loop on the matrix rows (skip the first header line)
 	 	loop i from: 0 to: data.rows -1 {
-			if (data[0,i] = int(function_attributes["my_qtf"]) and data[1,i] = int(current_inflow)){
+			if (data[0,i] = int(function_attributes["my_qtf"]) and data[1,i] = int(my_NBSS.total_inflow)){
 				my_output_managed_flow.my_flow <- float(data[2,i]);
 				my_output_unmanaged_flow.my_flow <- float(data[3,i]);	
 			}
@@ -562,6 +572,7 @@ species engineered_component parent: component {
 /********************************************** INLET ***************************************/
 species inlet parent: engineered_component {
 	
+	map <string,int> function_attributes <- ["my_qtf"::1];
 	aspect default {
 		draw circle(4) border:#black color:my_color;
 		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -7, 1} anchor: #top_center;
@@ -1214,11 +1225,11 @@ experiment "Interface (EN)"	type: gui {
 				data "Rain" value:rain collect(each.rainfall) color:#lightblue line_visible:true style:line use_second_y_axis: true;
 				data "Runoff events" value:rain collect(each.runoff.my_flow) color:#blue line_visible:true marker_shape: marker_up_triangle ;
 				}
-		}
+		}		
 		display "Inlet" type: 2d {
 			chart "Inlet evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
 				//data "Inflow" value:rain collect (each.runoff.my_flow)color: #darkblue marker_shape: marker_down_triangle;
-				data "Inflow performance level" value:inlet collect (each.function_attributes["my_qtf"])color: #grey marker_shape: marker_down_triangle;
+				//data "Inflow performance level" value:inlet collect (each.function_attributes["my_qtf"])color: #grey marker_shape: marker_down_triangle;
 				//data "Outflow" value:inlet collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
 			}
 		}
