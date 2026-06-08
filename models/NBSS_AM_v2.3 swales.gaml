@@ -301,13 +301,13 @@ write "NBSS from up to downstream : "+ordered_nbss;
 //	write "outflow from the first NBSS (nbss2) : " + outflow_to_next;
 //	}
 	
-	ask NBSS where (each.nbss_id=1) {
-	write "inflow from the first NBSS (nbss2) to the second (nbss1) : " + managed_outflow_to_consider;
-	write "inflow from the runoff and unmanaged outflow of the NBSS2 for the second NBSS (nbss1) : " + inflow_to_consider ;
-	write "total inflow for NBSS1 (runoff and from nbss2) : "+total_inflow;
-	}
-
-	write "********************";
+//	ask NBSS where (each.nbss_id=1) {
+//	write "inflow from the first NBSS (nbss2) to the second (nbss1) : " + managed_outflow_to_consider;
+//	write "inflow from the runoff and unmanaged outflow of the NBSS2 for the second NBSS (nbss1) : " + inflow_to_consider ;
+//	write "total inflow for NBSS1 (runoff and from nbss2) : "+total_inflow;
+//	}
+//
+//	write "********************";
 }
 
 		
@@ -397,14 +397,20 @@ species NBSS {
 	reflex flooding when: ((my_inlet.my_output_unmanaged_flow.my_flow >= 1 and my_inlet.my_output_unmanaged_flow.my_flow <3) or (my_ponding_area.my_output_unmanaged_flow.my_flow >= 1 and my_ponding_area.my_output_unmanaged_flow.my_flow <3) ){
 		flooding_days <- flooding_days +1 ;
 	}
-	
+		
 	reflex well_being_impacted when: every(1 #day){
 		 well_being_impacted <- false;
 	}
 	
+	reflex littering when: length(my_components where (each.my_failures where (each.my_name = "trash_acc")))!=0 {
+		do well_being_impacted();
+	}
+	
 	action well_being_impacted {
-		poor_well_being_days <- poor_well_being_days +1;
-		well_being_impacted <- true;
+		if (well_being_impacted=false){
+			poor_well_being_days <- poor_well_being_days +1;
+			well_being_impacted <- true;
+		}
 	}
 	
 
@@ -471,7 +477,7 @@ species component {
 		// the downstream NBSS collects flow from : 
 		// - managed outflow of upstream NBSS outlets
 		// - unmanaged outflows of upstream NBSS inlets and ponding areas
-		// - runoff 
+		// - runoff if the inlet type is diffuse
 		if my_NBSS.my_upstream_NBSS!=nil and my_upstream_comp=nil {
 			// rules for outflow to consider by downstream NBSS when there is more than one upstream NBSS 
 			// first we have to consider the managed outflow of the upstream NBSS outlets
@@ -510,24 +516,27 @@ species component {
 				}
 			else {unmanaged_outflow_to_consider <-max(unmanaged_inlet_outflow_to_consider,unmanaged_pa_outflow_to_consider);}	
 			
-			// then we have to add the unmanaged_outflow_to_consider to the current_inflow (runoff) (same rule as above)
-			float inflow_to_consider;
-			if (unmanaged_outflow_to_consider=current_inflow and current_inflow=1){
-				if current_intensity = 3 {
-					inflow_to_consider <- 2;
+			// then we have to add the unmanaged_outflow_to_consider to the managed_outflow 
+			float total_outflows_to_consider;
+			if (unmanaged_outflow_to_consider=managed_outflow_to_consider and unmanaged_outflow_to_consider=2){
+				total_outflows_to_consider <- 3;
 				}
-			}
-			if (unmanaged_outflow_to_consider=current_inflow and current_inflow=2){
-				inflow_to_consider <- 3;
-				}
-			else {inflow_to_consider <-max(unmanaged_outflow_to_consider,current_inflow);}
+			else {total_outflows_to_consider <-max(unmanaged_outflow_to_consider,managed_outflow_to_consider);}
 			
 				
-			// then we have to put consider together the managed outflow and the inflow (same rules as above)
-			if (managed_outflow_to_consider=inflow_to_consider and current_inflow=2){
-				my_NBSS.total_inflow <- 3;
+			// then we have to put consider together the outflows and the runoff if the inlet type is diffuse (same rules as above)
+			if (my_NBSS.my_inlet.type = "diffuse") {
+				if (total_outflows_to_consider=current_inflow and current_inflow=1){
+					if current_intensity = 3 {
+						my_NBSS.total_inflow <- 2;
+					}
 				}
-			else {my_NBSS.total_inflow <-max(managed_outflow_to_consider,inflow_to_consider);}			
+				if (total_outflows_to_consider=current_inflow and current_inflow=2){
+					my_NBSS.total_inflow <- 3;
+					}
+				else {my_NBSS.total_inflow <-max(managed_outflow_to_consider,current_inflow);}			
+			}
+	
 		}		
 		
 		//loop on the matrix rows (skip the first header line)
@@ -572,6 +581,8 @@ species engineered_component parent: component {
 /********************************************** INLET ***************************************/
 species inlet parent: engineered_component {
 	
+	// we consider two types of inlet : either diffuse like side flow or point inlet like a pipe 
+	string type <- "diffuse" among:["diffuse", "point"];
 	map <string,int> function_attributes <- ["my_qtf"::1];
 	aspect default {
 		draw circle(4) border:#black color:my_color;
@@ -848,9 +859,7 @@ species vegetation_cover parent: component {
 	reflex degraded when: ((function_attributes["my_diversity"]<=1) or (function_attributes["my_health"]<= 1)){
 		degraded_vegetation_days <- degraded_vegetation_days +1;
 		ask my_NBSS {
-			if (well_being_impacted = false ){
 				do well_being_impacted ();
-				}
 		}
 
 	}
@@ -881,13 +890,7 @@ species failure_event{
 			function_attributes[failure.impacted_attribute] <- max(0,function_attributes[failure.impacted_attribute]-1);
 			failure.last_failure <- current_date;
 			add myself to:self.my_failures;
-			if (my_name = "trash_acc") {
-				ask my_NBSS {
-					if (well_being_impacted = false ){
-						do well_being_impacted ();
-						}
-				}
-			}
+
 		}
 		
 	}
