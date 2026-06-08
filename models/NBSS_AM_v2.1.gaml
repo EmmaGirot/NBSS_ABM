@@ -237,7 +237,7 @@ global {
 					prog_season_dep::bool(get("season_dep")),
 					prog_target_season::list<string>(get("target_season")),
 					department::string(get("department")),
-					cost::float(get("cost_euros"))
+					cost::float(get("cost_euros_m²"))
 				];	
 		}
 		if maintenance_type = "run-to-failure" {
@@ -423,8 +423,7 @@ species ponding_area parent: engineered_component {
 					save [current_date,"ponding_ended",my_name,"my_fqt"] to: "../results/failures.csv" format:"csv" rewrite: false;
 				}
 			}
-		}
-		
+		}		
 
 	}	
 		
@@ -490,10 +489,11 @@ species outlet parent: engineered_component {
 species vegetal_component parent: component {
 	bool climate_stress <- false;
 
-	// find the min and max of the list of spei3 for each season 
+	// this reflex calculates the Standardized Precipitation Evapotranspiration Index (SPEI) for each season using the data from spei_data retrieved from the climate_spei.csv file
 	reflex spei3_season when: (current_date.month = 2 or current_date.month=5 or current_date.month=8 or current_date.month=11)  and current_date.day = 1 {
 		loop i from:0 to:spei_data.rows-1 {
 			if current_date = date(string(int(spei_data[0,i]))){
+				// find the min and max of the list of spei3 for each season 
 				float max_spei3_season <- max(float(spei_data[2,i]),float(spei_data[2,i-1]), float(spei_data[2,i-2]));
 				float min_spei3_season <- min(float(spei_data[2,i]),float(spei_data[2,i-1]), float(spei_data[2,i-2]));
 				if (max_spei3_season >= 1.5) { // water stress/drowning
@@ -530,11 +530,13 @@ species vegetal_component parent: component {
 			
 	}
 	
+
 	action dying {
 		function_attributes["my_health"] <- max(0,function_attributes["my_health"] -1);
 			
 	}
 	
+	// if the vegetation underwent a climate stress at the last spei calculation but is not dead, it can recover if the following spei calculation is between -1.5 and 1.5 
 	action recovering {
 		if (climate_stress = true) and (function_attributes["my_health"]!= 0) {
 			function_attributes["my_health"] <- min(3,function_attributes["my_health"] +1);	
@@ -860,11 +862,8 @@ species programmed_maintenance  {
 	bool prog_season_dep; //some maintenance practices are season-dependent, i.e. they have a positive impact only if carried out during their target season(s)
 	list<string> prog_target_season;
 	float cost;
-	
-	
 	list<failure_event> processed_failures;
 	
-	// 
 	//Loading data from MP_pos_impact.csv which states what failures the MP responds to 
 	file mapping_mp_failure <- csv_file("../includes/maintenance_practices/MP_pos_impact.csv",";");
 	matrix mp_failure_map <- matrix(mapping_mp_failure);
