@@ -22,12 +22,9 @@
 
  * 
  * Changes made are : 
-*  - 3 intensity classes : 
-* 		- 1 : intensity <  x mm/h
-* 		- 2 : intensity from mm/h to mm/h
-* 		- 3 : intensity > x mm/h
-* - outlet type
-* - cost taken into account in the maintenance programmed csv file
+ * - grass and shrubs_plants are no longer 2 different agents but one called vegetation_cover
+ * - negative impact of maintenance practices if not carried out during targeted seasons as written in MP_Seasons.csv
+ * - negative impact of maintenance practices if frequency is too high compared to failure frequency 
  * 
  * TODO :
  * - call R from GAMA for spei calculation  
@@ -101,20 +98,18 @@ global {
 	// maintenance parameters 
 	string maintenance_type <- "programmed";// parameter: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
 	int intervention_delay_days <- 5;// parameter:true  min:2 max: 30;
-
 	
 	//performance parameters
-	int maintenance_days <- 0;
-	int accepted_flood_days <- 0;
-	int flooding_days <- 0;
-	int degraded_vegetation_days <- 0; 
-	int poor_well_being_days <-0;
+	int days_maintained <- 0;
+	int days_accepted_flood <- 0;
+	int days_flooding <- 0;
+	int days_vegetation_degraded <- 0; 
 	
 	init {
 		
 		// Initialization of Rain agent : 
 		create rain {
-			create output_flow{
+			create managed_flow{
 				my_component<- myself;
 				myself.runoff <- self;
 			}
@@ -134,8 +129,6 @@ global {
 		create NBSS from: shape_file_swales {
 			nbss_id <- index + 1;
 			my_name <- "Swale_" + string(nbss_id);
-			//my_surface <- calculate surface from GIS files ? 
-			my_hydro_fct <- "retention";
 			
 			create inlet {
 				my_name<-"inlet";
@@ -144,11 +137,11 @@ global {
 				my_downstream_comp <- my_NBSS.my_ponding_area;
 				myself.my_inlet <- self;
 				add self to:myself.my_engineered_components;
-				create output_flow{
+				create managed_flow{
 					my_component <- myself;
 					myself.my_output_managed_flow <- self;
 				}
-				create output_flow {
+				create unmanaged_flow {
 					my_component <- myself;
 					myself.my_output_unmanaged_flow <- self;
 	
@@ -163,11 +156,11 @@ global {
 				my_downstream_comp <- my_NBSS.my_filter_media;
 				myself.my_ponding_area <- self;
 				add self to:myself.my_engineered_components;
-				create output_flow{
+				create managed_flow{
 					my_component <- myself;
 					myself.my_output_managed_flow <- self;
 				}
-				create output_flow {
+				create unmanaged_flow {
 					my_component <- myself;
 					myself.my_output_unmanaged_flow <- self;
 				}		
@@ -189,11 +182,11 @@ global {
 				my_downstream_comp <- my_NBSS.my_outlet;
 				myself.my_filter_media <- self;
 				add self to:myself.my_engineered_components;
-				create output_flow{
+				create managed_flow{
 					my_component <- myself;
 					myself.my_output_managed_flow <- self;
 				}
-				create output_flow {
+				create unmanaged_flow {
 					my_component <- myself;
 					myself.my_output_unmanaged_flow <- self;
 				}
@@ -205,13 +198,14 @@ global {
 				my_NBSS<- myself;
 				my_color <- #antiquewhite;
 				my_upstream_comp <- my_NBSS.my_filter_media;
+				my_impacted_agents <- ["Sewer system", "Receiving natural environment"];
 				myself.my_outlet <- self;
 				add self to:myself.my_engineered_components;
-				create output_flow{
+				create managed_flow{
 					my_component <- myself;
 					myself.my_output_managed_flow <- self;
 				}
-				create output_flow {
+				create unmanaged_flow {
 					my_component <- myself;
 					myself.my_output_unmanaged_flow <- self;
 				}
@@ -219,17 +213,37 @@ global {
 			my_components <- my_engineered_components union my_vegetal_components;	
 			
 		}
-		
 
 	ask NBSS where (each.nbss_id = 2) {
+	local_runoff_in <- 10.0;
+	inlet_condition <- 1.0; // normal downstream swale
 	add self to:ordered_nbss;
 }
 
 	ask NBSS where (each.nbss_id = 1) {
+	local_runoff_in <- 10.0;
+	inlet_condition <- 0.5; // partially clogged upstream swale
 	add self to:ordered_nbss;
 }
-write "NBSS from up to downstream : "+ordered_nbss;
+write "NBSS from up to downstrem : "+ordered_nbss;
 
+		create urban_environment {
+			my_name <- "Urban environment";
+			create unmanaged_flow{
+				my_component<- myself;
+				myself.overflow <- self;
+				
+			}
+			
+		}
+		
+		create sewer_system{
+			my_name <- "Sewer system";
+		}
+		
+		create natural_environment{
+			my_name <- "Receiving natural environment";
+		}
 	
 		create failure_event {}
 		// The following 2 csv files contain failure event parameters.
@@ -262,7 +276,7 @@ write "NBSS from up to downstream : "+ordered_nbss;
 					prog_season_dep::bool(get("season_dep")),
 					prog_target_season::list<string>(get("target_season")),
 					department::string(get("department")),
-					cost::float(get("cost_euros_m²"))
+					cost::float(get("cost_euros"))
 				];	
 		}
 		if maintenance_type = "run-to-failure" {
@@ -270,21 +284,23 @@ write "NBSS from up to downstream : "+ordered_nbss;
 		}
 		
 		
-		
-		//adding of NBSS1 in the downstream of NBSS2	
-		ask NBSS {
-			if nbss_id=1 {my_upstream_NBSS<-NBSS-self;}
-			if nbss_id=2 {my_downstream_NBSS<-NBSS-self;}	
-		}
+	//adding of NBSS1 in the downstream of NBSS2	
+	ask NBSS {
+		if nbss_id=1 {my_upstream_NBSS<-NBSS-self;}
+		if nbss_id=2 {my_downstream_NBSS<-NBSS-self;}	
 	}	
 		
+		
+		
+	}	
+	
 	reflex NBSS_functioning{
 			
 			ask rain { do create_runoff;}
 			
 			ask ordered_nbss {
 				ask my_inlet {
-					do update_output_flows(any(rain).runoff.my_flow, any(rain).runoff.my_intensity);
+					do update_output_flows(any(rain).runoff.my_flow);
 				}
 			ask my_ponding_area {
 				do flow_downstream;
@@ -296,18 +312,18 @@ write "NBSS from up to downstream : "+ordered_nbss;
 	reflex debug_2swale_transfer {
 	write "---- 2-swale test ----";
 	
-//	
-//	ask NBSS where (each.nbss_id=2) {
-//	write "outflow from the first NBSS (nbss2) : " + outflow_to_next;
-//	}
 	
-//	ask NBSS where (each.nbss_id=1) {
-//	write "inflow from the first NBSS (nbss2) to the second (nbss1) : " + managed_outflow_to_consider;
-//	write "inflow from the runoff and unmanaged outflow of the NBSS2 for the second NBSS (nbss1) : " + inflow_to_consider ;
-//	write "total inflow for NBSS1 (runoff and from nbss2) : "+total_inflow;
-//	}
-//
-//	write "********************";
+	ask NBSS where (each.nbss_id=2) {
+	write "outflow from the first NBSS (nbss2) : " + outflow_to_next;
+	}
+	
+	ask NBSS where (each.nbss_id=1) {
+	write "inflow from the first NBSS (nbss2) to the second (nbss1) : " + upstream_outflow_in;
+	write "inflow from the runoff for the second NBSS (nbss1) : " + local_runoff_in;
+	write "total inflow for NBSS1 (runoff and from nbss2) : "+total_inflow;
+	}
+
+	write "********************";
 }
 
 		
@@ -321,8 +337,7 @@ write "NBSS from up to downstream : "+ordered_nbss;
 /* Declaration of the rain species */
 species rain {
 	float rainfall;
-	//managed_flow runoff;
-	output_flow runoff;
+	managed_flow runoff;
 	date last_rain;
 	list<int> runoff_history <- [];
 
@@ -331,15 +346,8 @@ species rain {
 		loop i from:0 to:weather_data.rows-1 {
 			if current_date = date(string(int(weather_data[0,i]))) {
 				//Rainfall event <= 20mm in a day are considered as a runoff flow of 1
-				if (float(weather_data[1,i]) <= 20.0 and float(weather_data[1,i]) > 2.0) {
+				if (float(weather_data[1,i]) <= 20.0 and float(weather_data[1,i]) > 5.0) {
 					runoff.my_flow <- 1.0;
-					//if (float(weather_data[2,i]) < )
-					// runoff.my_intensity <- 
-					//if (float(weather_data[2,i]) < )
-					// runoff.my_intensity <- 
-					//if (float(weather_data[2,i]) < )
-					// runoff.my_intensity <- 
-					
 				}
 				//Rainfall event between 20mm and 80mm in a day are considered as a runoff flow of 2
 				if (float(weather_data[1,i]) > 20.0 and float(weather_data[1,i]) <= 80.0 ) {
@@ -365,14 +373,15 @@ species rain {
 species NBSS {
 	string my_name;
 	int nbss_id;
-	string my_hydro_fct;
-	float my_surface;
+//	NBSS upstream_nbss;
+//	NBSS downstream_nbss;
 
-	//float local_runoff_in <- 0.0;
-	float inflow_to_consider <- 0.0;
-	float managed_outflow_to_consider <- 0.0;
+	float local_runoff_in <- 0.0;
+	float upstream_outflow_in <- 0.0;
 	float total_inflow <- 0.0;
 	float outflow_to_next <- 0.0;
+
+	float inlet_condition <- 1.0;
 
 	inlet my_inlet; 
 	ponding_area my_ponding_area;
@@ -383,36 +392,11 @@ species NBSS {
 	list<vegetal_component> my_vegetal_components;
 	list<component> my_components;
 	rgb my_color<-#yellow;
-	
-	bool well_being_impacted <- false;
+
 	
 	//list of all NBSS linked to that NBSS by downstream
 	list<NBSS> my_downstream_NBSS;
 	list<NBSS> my_upstream_NBSS;
-	
-	reflex accepted_flood when: (my_inlet.my_output_unmanaged_flow.my_flow =3 or my_ponding_area.my_output_unmanaged_flow.my_flow=3){
-		accepted_flood_days <- accepted_flood_days +1 ;
-	}
-	
-	reflex flooding when: ((my_inlet.my_output_unmanaged_flow.my_flow >= 1 and my_inlet.my_output_unmanaged_flow.my_flow <3) or (my_ponding_area.my_output_unmanaged_flow.my_flow >= 1 and my_ponding_area.my_output_unmanaged_flow.my_flow <3) ){
-		flooding_days <- flooding_days +1 ;
-	}
-		
-	reflex well_being_impacted when: every(1 #day){
-		 well_being_impacted <- false;
-	}
-	
-	reflex littering when: length(my_components where (each.my_failures where (each.my_name = "trash_acc")))!=0 {
-		do well_being_impacted();
-	}
-	
-	action well_being_impacted {
-		if (well_being_impacted=false){
-			poor_well_being_days <- poor_well_being_days +1;
-			well_being_impacted <- true;
-		}
-	}
-	
 
 	aspect default {
 		draw rectangle(80,55) border:#black color:#white;
@@ -454,98 +438,46 @@ species component {
 	map <string,int> function_attributes;
 	component my_upstream_comp;
 	component my_downstream_comp;
+	list<string> my_impacted_agents;
 	bool rtf_state <- false; //run-to-failure state
 
 	action flow_downstream {
-		do update_output_flows(my_upstream_comp.my_output_managed_flow.my_flow, my_upstream_comp.my_output_managed_flow.my_intensity);
+		do update_output_flows(my_upstream_comp.my_output_managed_flow.my_flow);
 
 		ask my_NBSS.my_engineered_components where(each.my_upstream_comp = self) {
 			do flow_downstream;
 		}
 	}
 
-	action update_output_flows (float current_inflow, int current_intensity){
+	action update_output_flows (float current_inflow){
 		matrix data <- matrix(output_flow_LT_file);
 		
 			
-//		//if inlet of the most upstream NBSS, local_runoff_in is the runoff flow
-//		if my_upstream_comp=nil {
-//			my_NBSS.local_runoff_in<-current_inflow;	
-//		}
+		//if inlet, we can have the runoff flow
+		if my_upstream_comp=nil {
+			my_NBSS.local_runoff_in<-current_inflow;	
+		}
 			
+		
 		//add the integration of connected NBSS
-		// the downstream NBSS collects flow from : 
-		// - managed outflow of upstream NBSS outlets
-		// - unmanaged outflows of upstream NBSS inlets and ponding areas
-		// - runoff if the inlet type is diffuse
 		if my_NBSS.my_upstream_NBSS!=nil and my_upstream_comp=nil {
-			// rules for outflow to consider by downstream NBSS when there is more than one upstream NBSS 
-			// first we have to consider the managed outflow of the upstream NBSS outlets
-			float managed_outflow_to_consider; 
-			// if all upstream NBSS all have an outflow value of 2, the total outflow to consider is 3
-			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_outlet.my_output_managed_flow.my_flow))))=1 {
-				if (any(my_NBSS.my_upstream_NBSS collect (each.my_outlet.my_output_managed_flow.my_flow)))=2 {
-					managed_outflow_to_consider <-3;
-				}
-			}
-			//otherwise, if the outflow values of the upstream NBSS are different, take the maximum value
-			else {managed_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_outlet.my_output_managed_flow.my_flow);}
-			
-			// then we have to consider the unmanaged outflow of upstreams NBSS 
-			// unmanaged outflow can come from stormwater that didn't go through the inlet or stormwater that overflowed from ponding area (unmanaged outflow from outlet is managed by ponding area)
-			// same rules as managed outflow apply for unmanaged inlet outflow  and unmanaged pa outflow
-			float unmanaged_inlet_outflow_to_consider; 
-			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_inlet.my_output_unmanaged_flow.my_flow))))=1{
-				if (any(my_NBSS.my_upstream_NBSS collect (each.my_inlet.my_output_unmanaged_flow.my_flow)))=2 {
-					unmanaged_inlet_outflow_to_consider <-3;
-				}
-			}
-			else {unmanaged_inlet_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_inlet.my_output_unmanaged_flow.my_flow);}
-			float unmanaged_pa_outflow_to_consider;		
-			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_ponding_area.my_output_unmanaged_flow.my_flow))))=1{
-				if (any(my_NBSS.my_upstream_NBSS collect (each.my_ponding_area.my_output_unmanaged_flow.my_flow)))=2 {
-					unmanaged_pa_outflow_to_consider <-3;
-				}
-			}
-			else {unmanaged_pa_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_ponding_area.my_output_unmanaged_flow.my_flow);}
-			
-			//then the total unmanaged outflow to consider follows the same rule as above with the inlet unmanaged and ponding area unmanaged outflows
-			float unmanaged_outflow_to_consider;
-			if (unmanaged_inlet_outflow_to_consider=unmanaged_pa_outflow_to_consider and unmanaged_pa_outflow_to_consider=2){
-				unmanaged_outflow_to_consider <- 3;
-				}
-			else {unmanaged_outflow_to_consider <-max(unmanaged_inlet_outflow_to_consider,unmanaged_pa_outflow_to_consider);}	
-			
-			// then we have to add the unmanaged_outflow_to_consider to the managed_outflow 
-			float total_outflows_to_consider;
-			if (unmanaged_outflow_to_consider=managed_outflow_to_consider and unmanaged_outflow_to_consider=2){
-				total_outflows_to_consider <- 3;
-				}
-			else {total_outflows_to_consider <-max(unmanaged_outflow_to_consider,managed_outflow_to_consider);}
-			
-				
-			// then we have to put consider together the outflows and the runoff if the inlet type is diffuse (same rules as above)
-			if (my_NBSS.my_inlet.type = "diffuse") {
-				if (total_outflows_to_consider=current_inflow and current_inflow=1){
-					if current_intensity = 3 {
-						my_NBSS.total_inflow <- 2;
-					}
-				}
-				if (total_outflows_to_consider=current_inflow and current_inflow=2){
-					my_NBSS.total_inflow <- 3;
-					}
-				else {my_NBSS.total_inflow <-max(managed_outflow_to_consider,current_inflow);}			
-			}
-	
-		}		
+			float outflow_to_consider<-my_NBSS.my_upstream_NBSS max_of(each.my_outlet.my_output_managed_flow.my_flow);
+			my_NBSS.upstream_outflow_in<-outflow_to_consider;
+			current_inflow<-max(current_inflow,outflow_to_consider);	
+			my_NBSS.total_inflow<-current_inflow;
+		}
+		
+
+		
 		
 		//loop on the matrix rows (skip the first header line)
 	 	loop i from: 0 to: data.rows -1 {
-			if (data[0,i] = int(function_attributes["my_qtf"]) and data[1,i] = int(my_NBSS.total_inflow)){
+			if (data[0,i] = int(function_attributes["my_fqt"]) and data[1,i] = int(current_inflow)){
 				my_output_managed_flow.my_flow <- float(data[2,i]);
 				my_output_unmanaged_flow.my_flow <- float(data[3,i]);	
 			}
 		}
+		
 		
 			 //if outlet, outlet to next (by default managed flow)
 		if my_downstream_comp=nil and my_NBSS.my_upstream_NBSS!=nil  {
@@ -554,7 +486,6 @@ species component {
 		
 		
 	}
-
 	
 
 }
@@ -562,11 +493,11 @@ species component {
 /**************************** PARENT : ENGINEERED COMPONENTS*****************************************/
 
 species engineered_component parent: component {
-	map <string,int> function_attributes <- ["my_qtf"::3];
+	map <string,int> function_attributes <- ["my_fqt"::3];
 	
 	
 	// critical state that will lead to run-to-failure maintenance
-	reflex eng_critic_state when: (function_attributes["my_qtf"]=0) and (rtf_state=false){
+	reflex eng_critic_state when: (function_attributes["my_fqt"]=0) and (rtf_state=false){
 		rtf_state <- true;
 		create rtf_maintenance {
 			impacted_component <- myself;
@@ -574,36 +505,40 @@ species engineered_component parent: component {
 		}
 		
 	}
-	
 }
 	
 
 /********************************************** INLET ***************************************/
 species inlet parent: engineered_component {
 	
-	// we consider two types of inlet : either diffuse like side flow or point inlet like a pipe 
-	string type <- "diffuse" among:["diffuse", "point"];
-	map <string,int> function_attributes <- ["my_qtf"::1];
 	aspect default {
 		draw circle(4) border:#black color:my_color;
 		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -7, 1} anchor: #top_center;
 		//draw line([ponding_area(0).location -0.01,self.location + 3]) color: #dodgerblue begin_arrow: 2 end_arrow: -7 width: 2.0;
 	}
 	
+	reflex accepted_flood when: (my_output_unmanaged_flow.my_flow =3){
+		days_accepted_flood <- days_accepted_flood +1 ;
+	}
+	
+	reflex flooding when: (my_output_unmanaged_flow.my_flow >= 1 and my_output_unmanaged_flow.my_flow <3){
+		days_flooding <- days_flooding +1 ;
+	}
 }
 
 /******************************************** PONDING AREA ********************************************/
 species ponding_area parent: engineered_component {
+	bool temporary<-true;
 	bool ponding <- false;
 	
 	//unusual ponding occurs when filter media has an output_unmanaged_flow
-	reflex unusual_ponding when: (my_downstream_comp != nil) and (my_downstream_comp.my_output_unmanaged_flow.my_flow>=1) and (ponding=false) {
-		function_attributes["my_qtf"] <- max(0,function_attributes["my_qtf"]-1);
+	reflex unusual_ponding when: (current_date < starting_date) and (my_downstream_comp.my_output_unmanaged_flow.my_flow>=1) and (ponding=false){
+		function_attributes["my_fqt"] <- max(0,function_attributes["my_fqt"]-1);
 		ponding <- true;
 		create failure_event {
 			my_name <- "unusual_ponding";
 			impacted_agent <- my_name;
-			impacted_attribute <- "my_qtf";	
+			impacted_attribute <- "my_fqt";	
 			last_failure <- current_date;
 			ask agents of_generic_species component where (each.my_name=impacted_agent) {	
 				add myself to: my_failures;
@@ -616,9 +551,9 @@ species ponding_area parent: engineered_component {
 		ask rain {
 			if (sum(copy_between(runoff_history, length(runoff_history) - 2 ,length(runoff_history))))>= 4{
 				ask myself {
-					function_attributes["my_qtf"] <- min(3,function_attributes["my_qtf"]+1);
+					function_attributes["my_fqt"] <- min(3,function_attributes["my_fqt"]+1);
 					ponding <- false;
-					save [current_date,"ponding_ended",my_name,"my_qtf"] to: "../results/failures.csv" format:"csv" rewrite: false;
+					save [current_date,"ponding_ended",my_name,"my_fqt"] to: "../results/failures.csv" format:"csv" rewrite: false;
 				}
 			}
 		}
@@ -634,10 +569,10 @@ species ponding_area parent: engineered_component {
 	}
 	
 }
+
 /************************************************** FILTER MEDIA **********************************************/
 species filter_media parent: engineered_component {
 	float partpoll_acc <- 0.0;
-	bool saturation <- false;
 	
 	// sediment accumulation dynamic = 0.3 cm/year (Chabert et al., 2025) 
 	reflex partpoll_accumulation when: every(1 #year) and (current_date > starting_date){
@@ -645,48 +580,19 @@ species filter_media parent: engineered_component {
 	}
 	
 	//when filter_media is getting clogged (because of sediment accumulation or excess veg), vegetation health is impacted
-	reflex clogged_fm when: (function_attributes["my_qtf"] <=1) and every(2# week){
+	reflex clogged_fm when: (function_attributes["my_fqt"] <=1) and every(2# week){
 		ask agents of_generic_species vegetal_component {
 			do clogged_fm_on_veg;
 		}
 	}
 	
-	//filter media saturation occurs when outlet has an output_unmanaged_flow
-	reflex saturation when: (my_downstream_comp != nil) and (my_downstream_comp.my_output_unmanaged_flow.my_flow>=1) and (saturation=false) {
-		function_attributes["my_qtf"] <- max(0,function_attributes["my_qtf"]-1);
-		saturation <- true;
-		create failure_event {
-			my_name <- "fm_saturation";
-			impacted_agent <- my_name;
-			impacted_attribute <- "my_qtf";	
-			last_failure <- current_date;
-			ask agents of_generic_species component where (each.my_name=impacted_agent) {	
-				add myself to: my_failures;
-			}
-		}		
-	}
-	
-	// if there hasn't been any runoff >= 2 for the next 2 days after a saturation event, saturation ends
-	reflex ponding_ended when: (saturation=true){
-		ask rain {
-			if (sum(copy_between(runoff_history, length(runoff_history) - 2 ,length(runoff_history))))>= 4{
-				ask myself {
-					function_attributes["my_qtf"] <- min(3,function_attributes["my_qtf"]+1);
-					saturation <- false;
-					save [current_date,"ponding_ended",my_name,"my_qtf"] to: "../results/failures.csv" format:"csv" rewrite: false;
-				}
-			}
-		}
-		
-
-	}
 	//when vegetation is unhealthy, infiltration performance of filter media is impacted
 	action unhealthy_veg_on_fm {
-		function_attributes["my_qtf"] <- max(0,function_attributes["my_qtf"]-0.25);
+		function_attributes["my_fqt"] <- max(0,function_attributes["my_fqt"]-0.25);
 		create failure_event {
 			my_name <- "unhealthy_veg_on_fm";
 			impacted_agent <- "filter_media";
-			impacted_attribute <- "my_qtf";
+			impacted_attribute <- "my_fqt";
 			last_failure <- current_date;
 			ask agents of_generic_species component where (each.my_name=impacted_agent) {	
 				add myself to: my_failures;
@@ -704,13 +610,11 @@ species filter_media parent: engineered_component {
 
 /***************************************************** OUTLET *************************************/
 species outlet parent: engineered_component {
-	
 	aspect default {
 		draw circle(4) border:#black color:my_color;
 		draw my_name color:#black font:font("Helvetica", 12, #bold) at: location + {0, -7, 1} anchor: #center;
 	}
 }
-
 
 
 
@@ -836,7 +740,7 @@ species vegetation_cover parent: component {
 	map <string,int> function_attributes <- ["my_health"::3,"my_diversity"::3];
 	bool invasive <- false;
 
-	// when the vegetation cover's global health reaches 1, it impacts the filter media "my_qtf" attribute by -0.25 every month
+	// when the vegetation cover's global health reaches 1, it impacts the filter media "my_fqt" attribute by -0.25 every month
 	reflex unhealthy_veg when: (function_attributes["my_health"]<=1) and every(1 #month) {
 		ask any(filter_media){
 			do unhealthy_veg_on_fm;
@@ -857,23 +761,76 @@ species vegetation_cover parent: component {
 	}
 	
 	reflex degraded when: ((function_attributes["my_diversity"]<=1) or (function_attributes["my_health"]<= 1)){
-		degraded_vegetation_days <- degraded_vegetation_days +1;
-		ask my_NBSS {
-				do well_being_impacted ();
-		}
-
+		days_vegetation_degraded <- days_vegetation_degraded +1;
 	}
 	
 }
 
-/***************************************************** OUTPUT FLOW *******************************************/
+/***************************************************** URBAN ENVIRONMENT *******************************************/
+
+species urban_environment {
+	string my_name;
+	rgb my_color;
+	unmanaged_flow overflow;
+
+		reflex update_color {
+		// what color should I use for the urban environment since it doesn't have a "condition" ? 
+		//my_color<-condition_color[overflow];	
+	}
+	
+	action update_overflow(float input_flow){
+		overflow.my_flow <- input_flow;
+	}
+	
+	aspect default {
+		draw rectangle(100,75) border:#sienna color:#tan ;
+		draw my_name font:font("Helvetica", 12, #bold) color:#sienna at: location + {0, -41, 1} anchor: #top_center;
+	}
+	
+}
+
+/***************************************************** SEWER SYSTEM *******************************************/
+
+species sewer_system {
+	string my_name;
+	aspect default {
+		draw circle(10) border:#black color:#grey;
+		draw my_name font:font("Helvetica", 12, #bold) color:#black at: location + {0, -13, 1} anchor: #top_center;
+	}
+}
+
+
+/***************************************************** NATURAL ENVIRONMENT *******************************************/
+
+species natural_environment {
+	string my_name;
+	aspect default {
+		draw circle(10) border:#black color:#grey;
+		draw my_name font:font("Helvetica", 12, #bold) color:#black at: location + {0, -13, 1} anchor: #top_center;
+	}
+}
+
+
+/***************************************************** PARENT : OUTPUT FLOW *******************************************/
 
 species output_flow {
 	agent my_component;
 	float my_flow;
-	int my_intensity;
 		
 }
+
+/***************************************************** MANAGED OUTPUT FLOW *******************************************/
+species managed_flow parent: output_flow {
+
+
+}
+
+
+/***************************************************** UNMANAGED OUTPUT FLOW *******************************************/
+species unmanaged_flow parent: output_flow {
+	
+}
+
 
 /***************************************************** FAILURE EVENT *******************************************/
 species failure_event{
@@ -890,9 +847,7 @@ species failure_event{
 			function_attributes[failure.impacted_attribute] <- max(0,function_attributes[failure.impacted_attribute]-1);
 			failure.last_failure <- current_date;
 			add myself to:self.my_failures;
-
 		}
-		
 	}
 	
 	reflex failure_happened when: (failure_happened = true) and (last_failure != current_date) {
@@ -1039,8 +994,10 @@ species programmed_maintenance  {
 	list<string> prog_target_season;
 	float cost;
 	
+	
 	list<failure_event> processed_failures;
 	
+	// 
 	//Loading data from MP_pos_impact.csv which states what failures the MP responds to 
 	file mapping_mp_failure <- csv_file("../includes/maintenance_practices/MP_pos_impact.csv",";");
 	matrix mp_failure_map <- matrix(mapping_mp_failure);
@@ -1090,13 +1047,29 @@ species programmed_maintenance  {
 	}
 
 	reflex trigger_prog_maintenance when: (maintenance_type="programmed")and every(maintenance_frequency #week) and (current_date>starting_date){ 
-		maintenance_days <- maintenance_days +1;
+		days_maintained <- days_maintained +1;
+//		ask agents of_generic_species vegetal_component {
+//			if length(my_failures)>=1{
+//				loop j over:my_failures {
+//					loop i over:myself.linked_failures {
+//						if j.my_name=i{
+//							ask j {
+//								myself.function_attributes[impacted_attribute] <- min(3,myself.function_attributes[impacted_attribute]+1);
+//								
+//								//reset failure event frequency with maintenance date
+//								 last_maintenance <- current_date; 
+//								
+//							}
+//							add j to:myself.processed_failures;
+//						} 
+//					}
+//				}
+//			}remove myself.processed_failures from:my_failures;
+//		}
 		ask agents of_generic_species component {
-			// go over every failure that has impacted the NBSS and repair specific failure with triggered maintenance practice
 			if length(my_failures)>=1{	
 				loop j over:my_failures {
 					loop i over:myself.linked_failures {
-						//the maintenance practice will have a positive impact of +1 otherwise it will repair (+1) as many failures as it is linked to that have impacted the NBSS
 						if j.my_name =i{
 							ask j {
 								myself.function_attributes[impacted_attribute] <- min(3,myself.function_attributes[impacted_attribute]+1);
@@ -1107,15 +1080,14 @@ species programmed_maintenance  {
 									partpoll_acc <- 0.0;
 								 }
 								}
-							}
-							add j to:myself.processed_failures;
+							}add j to:myself.processed_failures;
 						}
 					}
 				}
 			} remove myself.processed_failures from:my_failures;
 		}
+		// possible negative impact from maintenance practice if not carried out during target season
 		if (my_neg_impact=true) {	
-			// check if maintenance practice season target is reached
 			if (season_sensitive=true) {
 				loop k over:my_target_seasons {
 					if current_season = k {	
@@ -1123,7 +1095,6 @@ species programmed_maintenance  {
 					}
 				}
 			}
-			// check if maintenance practice frequency target is reached
 			if (freq_sensitive=true){
 				ask agents of_generic_species component where (each.my_name=my_neg_impacted_component){
 					if (function_attributes[myself.my_neg_impacted_attribute] <= 2){
@@ -1131,8 +1102,7 @@ species programmed_maintenance  {
 					}
 				}
 			}
-			// if one of the target is not reached --> negative impact 
-			if (season_target_reached = false or freq_target_reached=false){
+			if (season_target_reached = false and freq_target_reached=false){
 				ask agents of_generic_species component where (each.my_name=my_neg_impacted_component){
 					function_attributes[myself.my_neg_impacted_attribute]<-max(0,function_attributes[myself.my_neg_impacted_attribute]-1);
 					write "negative impact of " + myself.practice_name + " on " + myself.my_neg_impacted_attribute + " of " + myself.my_neg_impacted_component;
@@ -1152,7 +1122,7 @@ species rtf_maintenance  {
 	date rtf_state_date <- starting_date; 
 	
 	reflex trigger_rtf_maintenance when: (maintenance_type="run-to-failure") and (current_date = rtf_state_date + intervention_delay_days #day ) and (rtf_state_date !=starting_date) and (maintenance_type = "run-to-failure") {
-			maintenance_days <- maintenance_days +1;
+			days_maintained <- days_maintained +1;
 			ask agents of_generic_species vegetal_component where (each.my_name=impacted_component.my_name) {
 				function_attributes["my_health"] <- 3.0;
 				rtf_state <- false;
@@ -1163,7 +1133,7 @@ species rtf_maintenance  {
 			}
 			ask agents of_generic_species engineered_component where (each.my_name=impacted_component.my_name) {
 			//ask agents of_generic_species engineered_component where (each.critic_state=true){
-				function_attributes["my_qtf"] <- 3 ;
+				function_attributes["my_fqt"] <- 3 ;
 				rtf_state <- false;
 				if (my_name = "filter_media") {
 					ask my_NBSS.my_filter_media{
@@ -1179,30 +1149,26 @@ species rtf_maintenance  {
 		}
 }
 
-
 //******************** EXPERIMENT  *****************************************
 	
 // Tests for sensitivity analysis	
 experiment "tests" type: batch repeat:3 until:end_sim{
 	parameter "maintenance" var: maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
 		output {
-		monitor "Accepted flood" value: accepted_flood_days;
-		monitor "Flooding" value: flooding_days;
-		monitor "Degraded vegetation" value:degraded_vegetation_days;
-		monitor "Poor well-being" value:poor_well_being_days;
-		monitor "Maintenance" value:maintenance_days;
+		monitor "Accepted flood" value: days_accepted_flood;
+		monitor "Flooding" value: days_flooding;
+		monitor "Degraded vegetation days" value:days_vegetation_degraded;
+		monitor "Maintenance days" value:days_maintained;
 		}
 }
 
 // Simple run of model without interface 
 experiment "run" type: gui {
-	parameter "maintenance type" var:maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
 	output {
-		monitor "Accepted flood" value: accepted_flood_days;
-		monitor "Flooding" value: flooding_days;
-		monitor "Degraded vegetation " value:degraded_vegetation_days;
-		monitor "Poor well-being" value:poor_well_being_days;
-		monitor "Maintenance" value:maintenance_days;
+		monitor "Accepted flood" value: days_accepted_flood;
+		monitor "Flooding" value: days_flooding;
+		monitor "Degraded vegetation days" value:days_vegetation_degraded;
+		monitor "Maintenance days" value:days_maintained;
 		
 		display swales_display type: 2d {
     species urban_area aspect: base;
@@ -1216,37 +1182,36 @@ experiment "run" type: gui {
 
 // Interface 
 experiment "Interface (EN)"	type: gui {
-		parameter "maintenance type" var:maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
+	parameter "maintenance type" var:maintenance_type among:["no maintenance", "run-to-failure", "programmed"];
 	output {
-		monitor "Accepted flood" value: accepted_flood_days;
-		monitor "Flooding" value: flooding_days;
-		monitor "Degraded vegetation" value:degraded_vegetation_days;
-		monitor "Poor well-being" value:poor_well_being_days;
-		monitor "Maintenance" value:maintenance_days;
+		monitor "Accepted flood" value: days_accepted_flood;
+		monitor "Flooding" value: days_flooding;
+		monitor "Degraded vegetation days" value:days_vegetation_degraded;
+		monitor "Maintenance days" value:days_maintained;
 		display "Rain" type: 2d {
 			chart "Rain events" type: series y_label: "level" y2_label:"mm" y_range: {0,3.5} y2_range:{-120,0} y_tick_unit:1   y2_tick_unit:5 x_serie_labels:string(current_date,"dd MM yyyy"){
 				data "Rain" value:rain collect(each.rainfall) color:#lightblue line_visible:true style:line use_second_y_axis: true;
 				data "Runoff events" value:rain collect(each.runoff.my_flow) color:#blue line_visible:true marker_shape: marker_up_triangle ;
 				}
-		}		
+		}
 		display "Inlet" type: 2d {
 			chart "Inlet evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
 				//data "Inflow" value:rain collect (each.runoff.my_flow)color: #darkblue marker_shape: marker_down_triangle;
-				//data "Inflow performance level" value:inlet collect (each.function_attributes["my_qtf"])color: #grey marker_shape: marker_down_triangle;
+				data "Inflow performance level" value:inlet collect (each.function_attributes["my_fqt"])color: #grey marker_shape: marker_down_triangle;
 				//data "Outflow" value:inlet collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
 			}
 		}
 		display "Ponding area" type: 2d{
 			chart "Ponding area evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
 				//data "Inflow" value:inlet collect (each.my_output_managed_flow.my_flow) color: #darkblue marker_shape: marker_down_triangle;
-				data "Retention performance level" value:ponding_area collect (each.function_attributes["my_qtf"])color: #grey marker_shape: marker_down_triangle;
+				data "Retention performance level" value:ponding_area collect (each.function_attributes["my_fqt"])color: #grey marker_shape: marker_down_triangle;
 				//data "Outflow" value:ponding_area collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
 			}
 		}
 		display "Filter media" type: 2d {
 			chart "Filter media evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
 				//data "Inflow" value:ponding_area collect (each.my_output_managed_flow.my_flow) color: #darkblue marker_shape: marker_down_triangle;
-				data "Infiltration performance level" value:filter_media collect (each.function_attributes["my_qtf"])color: #grey marker_shape: marker_down_triangle;
+				data "Infiltration performance level" value:filter_media collect (each.function_attributes["my_fqt"])color: #grey marker_shape: marker_down_triangle;
 				data "Sediment accumulation" value:filter_media collect (each.partpoll_acc) color: #red;
 				//data "Outflow" value:filter_media collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
 			}
@@ -1254,7 +1219,7 @@ experiment "Interface (EN)"	type: gui {
 //		display "Outlet" type: 2d {
 //			chart "Outlet evolution" type: series y_label: "level" y_range: {0,3.5} x_serie_labels:string(current_date,"dd MM yyyy") y_tick_unit:1 {
 //				data "Inflow" value:filter_media collect (each.my_output_managed_flow.my_flow) color: #darkblue marker_shape: marker_down_triangle;
-//				data "Outflow performance level" value:outlet collect (each.function_attributes["my_qtf"])color: #grey style:dot;
+//				data "Outflow performance level" value:outlet collect (each.function_attributes["my_fqt"])color: #grey style:dot;
 //				data "Outflow" value:outlet collect (each.my_output_managed_flow.my_flow) color:#deepskyblue marker_shape: marker_up_triangle;
 //			}
 //		}
@@ -1272,10 +1237,10 @@ experiment "Interface (EN)"	type: gui {
 			y_tick_unit:1000		
 			y_label: "nb of days"
 			series_label_position: onchart {
-				datalist legend:["Unmanaged flooding", "Accepted flooding","Unhealthy vegetation","Poor well-being","Maintenance days"] 
+				datalist legend:["Unmanaged flooding", "Accepted flooding","Unhealthy vegetation","Maintenance days"] 
 						style: bar
-						value:[flooding_days,accepted_flood_days,degraded_vegetation_days,poor_well_being_days,maintenance_days] 
-						color:[#lightblue,#blue,#green,#purple,#red];
+						value:[days_flooding,days_accepted_flood,days_vegetation_degraded,days_maintained] 
+						color:[#lightblue,#blue,#green,#purple];
 						
 			}
 			
