@@ -13,6 +13,7 @@
  * 	in the climate folder : 
  * climate_spei.csv
  * weather_input_gama.csv
+ * weather_input_gama_with_intensity.csv
  * 	in the failures folder : 
  * ext_metric_failures.csv
  * ext_time_failures.csv
@@ -20,15 +21,9 @@
  * MP_pos_impact.csv
  * MP_neg_impact_seasons.csv
 
- * 
- * Changes made are : 
- * - grass and shrubs_plants are no longer 2 different agents but one called vegetation_cover
- * - negative impact of maintenance practices if not carried out during targeted seasons as written in MP_Seasons.csv
- * - negative impact of maintenance practices if frequency is too high compared to failure frequency 
- * 
+ 
  * TODO :
  * - call R from GAMA for spei calculation  
- * - add randomness in the days of week in which ext_failures are triggered
  */
 
 model NBSSAM
@@ -44,7 +39,7 @@ global {
 	float simulation_duration <- float((years_between(starting_date,end_date)));
 	
 		// Loading csv rainfall and spei file
-	file weather_file <- csv_file("../includes/climate/weather_input_gama.csv",",");
+	file weather_file <- csv_file("../includes/climate/weather_input_gama_with_intensity.csv",",");
 	matrix weather_data <- matrix(weather_file);
 	
 	// TODO : create spei_file according to weather_file by calling R from GAMA
@@ -346,11 +341,19 @@ species rain {
 		loop i from:0 to:weather_data.rows-1 {
 			if current_date = date(string(int(weather_data[0,i]))) {
 				//Rainfall event <= 20mm in a day are considered as a runoff flow of 1
-				if (float(weather_data[1,i]) <= 20.0 and float(weather_data[1,i]) > 5.0) {
+				if (float(weather_data[1,i]) <= 15.0 and float(weather_data[1,i]) > 5.0) {
 					runoff.my_flow <- 1.0;
+					//if the intensity of a rain class 1 is higher than 2.86 mm/h than rain is considered class 2
+					if (float(weather_data[2,i]) >= 2.86) {
+					runoff.my_flow <- 2.0;
+					}
+					//TODO : for very intense rains -> intensity higher than ....mm/h -> class 3 
+//					if (float(weather_data[2,i]) >= ) {
+//					runoff.my_flow <- 3.0;
+//					}
 				}
 				//Rainfall event between 20mm and 80mm in a day are considered as a runoff flow of 2
-				if (float(weather_data[1,i]) > 20.0 and float(weather_data[1,i]) <= 80.0 ) {
+				if (float(weather_data[1,i]) > 15.0 and float(weather_data[1,i]) <= 80.0 ) {
 					runoff.my_flow <- 2.0;
 				}
 				//Rainfall event > 80mm in a day are considered as a runoff flow of 3
@@ -455,12 +458,12 @@ species component {
 			
 //add the integration of connected NBSS
 		// the downstream NBSS collects flow from : 
-		// - managed outflow of upstream NBSS outlets
-		// - unmanaged outflows of upstream NBSS inlets and ponding areas
-		// - runoff if the inlet type is diffuse
+		// (1) managed outflow of upstream NBSS outlets
+		// (2) unmanaged outflows of upstream NBSS inlets and ponding areas
+		// (3) direct runoff from rain 
 		if my_NBSS.my_upstream_NBSS!=nil and my_upstream_comp=nil {
 			// rules for outflow to consider by downstream NBSS when there is more than one upstream NBSS 
-			// first we have to consider the managed outflow of the upstream NBSS outlets
+			//  (1) first we have to consider the managed outflow of the upstream NBSS outlets
 			float managed_outflow_to_consider; 
 			// if all upstream NBSS all have an outflow value of 2, the total outflow to consider is 3
 			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_outlet.my_output_managed_flow.my_flow))))=1 {
@@ -471,7 +474,7 @@ species component {
 			//otherwise, if the outflow values of the upstream NBSS are different, take the maximum value
 			else {managed_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_outlet.my_output_managed_flow.my_flow);}
 			
-			// then we have to consider the unmanaged outflow of upstreams NBSS 
+			// (2) then we have to consider the unmanaged outflow of upstreams NBSS 
 			// unmanaged outflow can come from stormwater that didn't go through the inlet or stormwater that overflowed from ponding area (unmanaged outflow from outlet is managed by ponding area)
 			// same rules as managed outflow apply for unmanaged inlet outflow  and unmanaged pa outflow
 			float unmanaged_inlet_outflow_to_consider; 
@@ -503,17 +506,11 @@ species component {
 				}
 			else {total_outflows_to_consider <-max(unmanaged_outflow_to_consider,managed_outflow_to_consider);}
 			
-				
-			// then we have to put consider together the outflows and the runoff if the inlet type is diffuse (same rules as above)
-			//if (my_NBSS.my_inlet.type = "diffuse") {
-				if (total_outflows_to_consider=current_inflow and current_inflow=1){
-						my_NBSS.total_inflow <- 2;
+			// (3) then we have to add the direct runoff from rain  
+			if (total_outflows_to_consider=current_inflow and current_inflow=2){
+				my_NBSS.total_inflow <- 3;
 				}
-				if (total_outflows_to_consider=current_inflow and current_inflow=2){
-					my_NBSS.total_inflow <- 3;
-					}
-				else {my_NBSS.total_inflow <-max(managed_outflow_to_consider,current_inflow);}			
-			//}
+			else {my_NBSS.total_inflow <-max(managed_outflow_to_consider,current_inflow);}			
 	
 		}		
 		
@@ -866,7 +863,7 @@ species natural_environment {
 species output_flow {
 	agent my_component;
 	float my_flow;
-		
+
 }
 
 /***************************************************** MANAGED OUTPUT FLOW *******************************************/
