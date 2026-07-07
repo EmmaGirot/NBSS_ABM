@@ -1,7 +1,6 @@
-﻿vegetation_management;trash_removal;leaf_removal;mowing;sediment_removal;component_cleaning
-water_stress;trash_acc;leaf_acc;excess_veg;partpoll_acc;trash_acc
-drought_stress;;;;clogged_fm_on_veg;leaf_acc
-unhealthy_veg_on_fm;;;;;
-excess_veg;;;;;
-pathogens;;;;;
-invasive_plants;;;;;
+﻿vegetation_management;tree_management;trash_removal;leaf_removal;mowing;fm_sediment_removal;veg_sediment_removal;component_cleaning;time
+water_stress;pathogens;trash_acc;leaf_acc;excess_veg;partpoll_acc;clogged_fm_on_veg;comp_trash_acc;summer_mowing
+drought_stress;;;;;;;comp_leaf_acc;excess_vegetation_management
+unhealthy_veg_on_fm;;;;;;;;
+invasive_plants;;;;;;;
+plant_removal;;;;;;

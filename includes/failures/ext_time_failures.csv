@@ -1,6 +1,6 @@
 failure_name;season_dep;frequency_weeks;winter_factor;spring_factor;summer_factor;fall_factor;impacted_agent;impacted_attribute
-trash_acc;false;12;0;0;0;0;inlet;my_qtf
-leaf_acc;true;12;0;1;0;1;inlet;my_qtf
+comp_trash_acc;false;12;0;0;0;0;inlet;my_qtf
+comp_leaf_acc;true;12;0;1;0;1;inlet;my_qtf
 invasive_plants;true;12;0;1;0;0;vegetation_cover;my_biodiversity
 pathogens;false;2000;0;0;0;0;trees;my_health
 excess_veg;true;12;0;1;0;0;filter_media;my_qtf
