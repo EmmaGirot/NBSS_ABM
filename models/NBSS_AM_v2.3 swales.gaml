@@ -453,19 +453,69 @@ species component {
 		matrix data <- matrix(output_flow_LT_file);
 		
 			
-		//if inlet, we can have the runoff flow
-		if my_upstream_comp=nil {
-			my_NBSS.local_runoff_in<-current_inflow;	
-		}
-			
-		
-		//add the integration of connected NBSS
+//add the integration of connected NBSS
+		// the downstream NBSS collects flow from : 
+		// - managed outflow of upstream NBSS outlets
+		// - unmanaged outflows of upstream NBSS inlets and ponding areas
+		// - runoff if the inlet type is diffuse
 		if my_NBSS.my_upstream_NBSS!=nil and my_upstream_comp=nil {
-			float outflow_to_consider<-my_NBSS.my_upstream_NBSS max_of(each.my_outlet.my_output_managed_flow.my_flow);
-			my_NBSS.upstream_outflow_in<-outflow_to_consider;
-			current_inflow<-max(current_inflow,outflow_to_consider);	
-			my_NBSS.total_inflow<-current_inflow;
-		}
+			// rules for outflow to consider by downstream NBSS when there is more than one upstream NBSS 
+			// first we have to consider the managed outflow of the upstream NBSS outlets
+			float managed_outflow_to_consider; 
+			// if all upstream NBSS all have an outflow value of 2, the total outflow to consider is 3
+			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_outlet.my_output_managed_flow.my_flow))))=1 {
+				if (any(my_NBSS.my_upstream_NBSS collect (each.my_outlet.my_output_managed_flow.my_flow)))=2 {
+					managed_outflow_to_consider <-3;
+				}
+			}
+			//otherwise, if the outflow values of the upstream NBSS are different, take the maximum value
+			else {managed_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_outlet.my_output_managed_flow.my_flow);}
+			
+			// then we have to consider the unmanaged outflow of upstreams NBSS 
+			// unmanaged outflow can come from stormwater that didn't go through the inlet or stormwater that overflowed from ponding area (unmanaged outflow from outlet is managed by ponding area)
+			// same rules as managed outflow apply for unmanaged inlet outflow  and unmanaged pa outflow
+			float unmanaged_inlet_outflow_to_consider; 
+			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_inlet.my_output_unmanaged_flow.my_flow))))=1{
+				if (any(my_NBSS.my_upstream_NBSS collect (each.my_inlet.my_output_unmanaged_flow.my_flow)))=2 {
+					unmanaged_inlet_outflow_to_consider <-3;
+				}
+			}
+			else {unmanaged_inlet_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_inlet.my_output_unmanaged_flow.my_flow);}
+			float unmanaged_pa_outflow_to_consider;		
+			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_ponding_area.my_output_unmanaged_flow.my_flow))))=1{
+				if (any(my_NBSS.my_upstream_NBSS collect (each.my_ponding_area.my_output_unmanaged_flow.my_flow)))=2 {
+					unmanaged_pa_outflow_to_consider <-3;
+				}
+			}
+			else {unmanaged_pa_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_ponding_area.my_output_unmanaged_flow.my_flow);}
+			
+			//then the total unmanaged outflow to consider follows the same rule as above with the inlet unmanaged and ponding area unmanaged outflows
+			float unmanaged_outflow_to_consider;
+			if (unmanaged_inlet_outflow_to_consider=unmanaged_pa_outflow_to_consider and unmanaged_pa_outflow_to_consider=2){
+				unmanaged_outflow_to_consider <- 3;
+				}
+			else {unmanaged_outflow_to_consider <-max(unmanaged_inlet_outflow_to_consider,unmanaged_pa_outflow_to_consider);}	
+			
+			// then we have to add the unmanaged_outflow_to_consider to the managed_outflow 
+			float total_outflows_to_consider;
+			if (unmanaged_outflow_to_consider=managed_outflow_to_consider and unmanaged_outflow_to_consider=2){
+				total_outflows_to_consider <- 3;
+				}
+			else {total_outflows_to_consider <-max(unmanaged_outflow_to_consider,managed_outflow_to_consider);}
+			
+				
+			// then we have to put consider together the outflows and the runoff if the inlet type is diffuse (same rules as above)
+			//if (my_NBSS.my_inlet.type = "diffuse") {
+				if (total_outflows_to_consider=current_inflow and current_inflow=1){
+						my_NBSS.total_inflow <- 2;
+				}
+				if (total_outflows_to_consider=current_inflow and current_inflow=2){
+					my_NBSS.total_inflow <- 3;
+					}
+				else {my_NBSS.total_inflow <-max(managed_outflow_to_consider,current_inflow);}			
+			//}
+	
+		}		
 		
 
 		
