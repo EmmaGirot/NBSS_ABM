@@ -356,6 +356,7 @@ species rain {
 				//Rainfall event <= 20mm in a day are considered as a runoff flow of 1
 				if (float(weather_data[1,i]) <= 15.0 and float(weather_data[1,i]) > 5.0) {
 					runoff.my_flow <- 1.0;
+					// Swarna for intensity classes
 					//if the intensity of a rain class 1 is higher than 2.86 mm/h than rain is considered class 2
 					if (float(weather_data[2,i]) >= 2.86) {
 					runoff.my_flow <- 2.0;
