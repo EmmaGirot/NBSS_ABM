@@ -81,6 +81,21 @@ global {
 	int degraded_vegetation_days <- 0; 
 	int poor_well_being_days <-0;
 	
+
+	// connection type between 2 swales
+	int connection_config <- 1;
+	// 1 = runoff + managed pipe + overflow
+	// 2 = managed pipe + overflow
+	// 3 = runoff + overflow
+	
+    matrix<int> flow_combination_matrix <- matrix([
+        [1, 2, 3, 4],
+        [2, 3, 3, 4],
+        [3, 3, 4, 4],
+        [4, 4, 4, 4]
+    ]);
+
+	
 	init {
 		
 		// Initialization of Rain agent : 
@@ -193,10 +208,35 @@ global {
 		}
 
 	ask NBSS where (each.nbss_id = 2) {
+		local_runoff_in <- 10.0;
+	inlet_condition <- 1.0; // normal downstream swale
+
+	if connection_config = 1 {
+		use_local_runoff <- true;
+		use_upstream_managed_flow <- true;
+		use_upstream_overflow <- true;
+	}
+	else if connection_config = 2 {
+		use_local_runoff <- false;
+		use_upstream_managed_flow <- true;
+		use_upstream_overflow <- true;
+	}
+	else if connection_config = 3 {
+		use_local_runoff <- true;
+		use_upstream_managed_flow <- false;
+		use_upstream_overflow <- true;
+	}
+	
 	add self to:ordered_nbss;
 }
 
 	ask NBSS where (each.nbss_id = 1) {
+		local_runoff_in <- 10.0;
+	inlet_condition <- 0.5; // partially clogged upstream swale
+
+	use_local_runoff <- true;
+	use_upstream_managed_flow <- false;
+	use_upstream_overflow <- false;
 	add self to:ordered_nbss;
 }
 write "NBSS from up to downstrem : "+ordered_nbss;
@@ -397,6 +437,14 @@ species NBSS {
 	float upstream_outflow_in <- 0.0;
 	float total_inflow <- 0.0;
 	float outflow_to_next <- 0.0;
+	
+
+	float upstream_managed_in <- 0.0;
+	float upstream_overflow_in <- 0.0;
+	
+	bool use_local_runoff <- true;
+	bool use_upstream_managed_flow <- false;
+	bool use_upstream_overflow <- false;
 
 	float inlet_condition <- 1.0;
 
@@ -523,58 +571,107 @@ species component {
 		// (1) managed outflow of upstream NBSS outlets
 		// (2) unmanaged outflows of upstream NBSS inlets and ponding areas
 		// (3) direct runoff from rain 
-		if my_NBSS.my_upstream_NBSS!=nil and my_upstream_comp=nil {
-			// rules for outflow to consider by downstream NBSS when there is more than one upstream NBSS 
-			//  (1) first we have to consider the managed outflow of the upstream NBSS outlets
-			float managed_outflow_to_consider; 
-			// if all upstream NBSS all have an outflow value of 2, the total outflow to consider is 3
-			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_outlet.my_output_managed_flow.my_flow))))=1 {
-				if (any(my_NBSS.my_upstream_NBSS collect (each.my_outlet.my_output_managed_flow.my_flow)))=2 {
-					managed_outflow_to_consider <-3;
-				}
-			}
-			//otherwise, if the outflow values of the upstream NBSS are different, take the maximum value
-			else {managed_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_outlet.my_output_managed_flow.my_flow);}
-			
-			// (2) then we have to consider the unmanaged outflow of upstreams NBSS 
-			// unmanaged outflow can come from stormwater that didn't go through the inlet or stormwater that overflowed from ponding area (unmanaged outflow from outlet is managed by ponding area)
-			// same rules as managed outflow apply for unmanaged inlet outflow  and unmanaged pa outflow
-			float unmanaged_inlet_outflow_to_consider; 
-			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_inlet.my_output_unmanaged_flow.my_flow))))=1{
-				if (any(my_NBSS.my_upstream_NBSS collect (each.my_inlet.my_output_unmanaged_flow.my_flow)))=2 {
-					unmanaged_inlet_outflow_to_consider <-3;
-				}
-			}
-			else {unmanaged_inlet_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_inlet.my_output_unmanaged_flow.my_flow);}
-			float unmanaged_pa_outflow_to_consider;		
-			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_ponding_area.my_output_unmanaged_flow.my_flow))))=1{
-				if (any(my_NBSS.my_upstream_NBSS collect (each.my_ponding_area.my_output_unmanaged_flow.my_flow)))=2 {
-					unmanaged_pa_outflow_to_consider <-3;
-				}
-			}
-			else {unmanaged_pa_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_ponding_area.my_output_unmanaged_flow.my_flow);}
-			
-			//then the total unmanaged outflow to consider follows the same rule as above with the inlet unmanaged and ponding area unmanaged outflows
-			float unmanaged_outflow_to_consider;
-			if (unmanaged_inlet_outflow_to_consider=unmanaged_pa_outflow_to_consider and unmanaged_pa_outflow_to_consider=2){
-				unmanaged_outflow_to_consider <- 3;
-				}
-			else {unmanaged_outflow_to_consider <-max(unmanaged_inlet_outflow_to_consider,unmanaged_pa_outflow_to_consider);}	
-			
-			// then we have to add the unmanaged_outflow_to_consider to the managed_outflow 
-			float total_outflows_to_consider;
-			if (unmanaged_outflow_to_consider=managed_outflow_to_consider and unmanaged_outflow_to_consider=2){
-				total_outflows_to_consider <- 3;
-				}
-			else {total_outflows_to_consider <-max(unmanaged_outflow_to_consider,managed_outflow_to_consider);}
-			
-			// (3) then we have to add the direct runoff from rain  
-			if (total_outflows_to_consider=current_inflow and current_inflow=2){
-				my_NBSS.total_inflow <- 3;
-				}
-			else {my_NBSS.total_inflow <-max(managed_outflow_to_consider,current_inflow);}			
-	
-		}		
+		if my_NBSS.my_upstream_NBSS != nil and my_upstream_comp = nil {
+
+	NBSS upstream_swale <- any(my_NBSS.my_upstream_NBSS);
+
+	int local_flow <- 0;
+	int upstream_managed_flow <- 0;
+	int inlet_overflow <- 0;
+	int ponding_overflow <- 0;
+	int overflow_flow <- 0;
+	int combined_flow <- 0;
+
+	// 1. Local runoff
+	if my_NBSS.use_local_runoff {
+		local_flow <- int(current_inflow);
+	}
+
+	// 2. Managed flow from the upstream outlet
+if my_NBSS.use_upstream_managed_flow {
+
+    if upstream_swale != nil and upstream_swale.my_outlet != nil {
+        upstream_managed_flow <- int(
+            upstream_swale.my_outlet.my_output_managed_flow.my_flow
+        );
+    }
+    else {
+        upstream_managed_flow <- 0;
+
+        write "WARNING: no outlet found for upstream swale "
+            + upstream_swale;
+    }
+}
+
+	// 3. Unmanaged flow / overflow from upstream
+if my_NBSS.use_upstream_overflow {
+
+    if upstream_swale.my_inlet != nil {
+        inlet_overflow <- int(
+            upstream_swale.my_inlet.my_output_unmanaged_flow.my_flow
+        );
+    }
+    else {
+        inlet_overflow <- 0;
+    }
+
+    if upstream_swale.my_ponding_area != nil {
+        ponding_overflow <- int(
+            upstream_swale.my_ponding_area.my_output_unmanaged_flow.my_flow
+        );
+    }
+    else {
+        ponding_overflow <- 0;
+    }
+
+
+		// Combine the two overflow sources
+		if inlet_overflow = 0 {
+			overflow_flow <- ponding_overflow;
+		}
+		else if ponding_overflow = 0 {
+			overflow_flow <- inlet_overflow;
+		}
+		else {
+			overflow_flow <- flow_combination_matrix at {
+				inlet_overflow - 1,
+				ponding_overflow - 1
+			};
+		}
+	}
+
+	// Combine local runoff and managed flow
+	if local_flow = 0 {
+    combined_flow <- upstream_managed_flow;
+}
+else if upstream_managed_flow = 0 {
+    combined_flow <- local_flow;
+}
+else {
+    combined_flow <- flow_combination_matrix at {
+        local_flow - 1,
+        upstream_managed_flow - 1
+    };
+}
+
+	// Add upstream overflow
+	if combined_flow = 0 {
+		combined_flow <- overflow_flow;
+	}
+	else if overflow_flow != 0 {
+		combined_flow <- flow_combination_matrix at {
+			combined_flow - 1,
+			overflow_flow - 1
+		};
+	}
+
+my_NBSS.upstream_managed_in <- upstream_managed_flow;
+	my_NBSS.upstream_overflow_in <- overflow_flow;
+	my_NBSS.total_inflow <- combined_flow;
+
+	// Use the combined value in the lookup table below
+	current_inflow <- combined_flow;
+}
 		
 
 		
