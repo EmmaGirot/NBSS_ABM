@@ -89,10 +89,10 @@ global {
 	// 3 = runoff + overflow
 	
     matrix<int> flow_combination_matrix <- matrix([
-        [1, 2, 3, 4],
-        [2, 3, 3, 4],
-        [3, 3, 4, 4],
-        [4, 4, 4, 4]
+        [0, 1, 2, 3],
+        [1, 1, 2, 3],
+        [2, 2, 3, 3],
+        [3, 3, 3, 3]
     ]);
 
 	
@@ -302,10 +302,10 @@ write "NBSS from up to downstrem : "+ordered_nbss;
 	
 		
 		
-	//adding of NBSS1 in the downstream of NBSS2	
+	//NBSS1 is upstream and NBSS2 is downstream
 	ask NBSS {
-		if nbss_id=1 {my_upstream_NBSS<-NBSS-self;}
-		if nbss_id=2 {my_downstream_NBSS<-NBSS-self;}	
+		if nbss_id=2 {my_upstream_NBSS<-NBSS-self;}
+		if nbss_id=1 {my_downstream_NBSS<-NBSS-self;}	
 	}	
 		
 		
@@ -332,14 +332,14 @@ write "NBSS from up to downstrem : "+ordered_nbss;
 	write "---- 2-swale test ----";
 	
 	
-	ask NBSS where (each.nbss_id=2) {
-	write "outflow from the first NBSS (nbss2) : " + outflow_to_next;
+	ask NBSS where (each.nbss_id=1) {
+	write "outflow from the first NBSS (nbss1) : " + outflow_to_next;
 	}
 	
-	ask NBSS where (each.nbss_id=1) {
-	write "inflow from the first NBSS (nbss2) to the second (nbss1) : " + upstream_outflow_in;
-	write "inflow from the runoff for the second NBSS (nbss1) : " + local_runoff_in;
-	write "total inflow for NBSS1 (runoff and from nbss2) : "+total_inflow;
+	ask NBSS where (each.nbss_id=2) {
+	write "inflow from the first NBSS (nbss1) to the second (nbss2) : " + upstream_outflow_in;
+	write "inflow from the runoff for the second NBSS (nbss2) : " + local_runoff_in;
+	write "total inflow for NBSS1 (runoff and from nbss1) : "+total_inflow;
 	}
 
 	write "********************";
@@ -573,7 +573,9 @@ species component {
 		// (3) direct runoff from rain 
 		if my_NBSS.my_upstream_NBSS != nil and my_upstream_comp = nil {
 
-	NBSS upstream_swale <- any(my_NBSS.my_upstream_NBSS);
+	NBSS upstream_swale <- my_NBSS.my_upstream_NBSS;
+
+write upstream_swale;
 
 	int local_flow <- 0;
 	int upstream_managed_flow <- 0;
