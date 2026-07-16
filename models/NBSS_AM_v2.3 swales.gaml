@@ -81,6 +81,9 @@ global {
 	int degraded_vegetation_days <- 0; 
 	int poor_well_being_days <-0;
 	
+	//Intensity thresholds
+	float intensity_threshold <- 2.86;
+	
 	init {
 		
 		// Initialization of Rain agent : 
@@ -358,7 +361,7 @@ species rain {
 					runoff.my_flow <- 1.0;
 					// Swarna for intensity classes
 					//if the intensity of a rain class 1 is higher than 2.86 mm/h than rain is considered class 2
-					if (float(weather_data[2,i]) >= 2.86) {
+					if (float(weather_data[2,i]) >= intensity_threshold) {
 					runoff.my_flow <- 2.0;
 					}
 					//TODO : for very intense rains -> intensity higher than ....mm/h -> class 3 
@@ -1468,6 +1471,42 @@ experiment "explore" type: batch repeat:10 until: (current_date = end_date) {
 		}
 	}
 
+}
+
+experiment "rainfall intensity sensitivity" type: batch repeat: 3
+until: (current_date = end_date) {
+
+    parameter "Maintenance"
+        var: maintenance_type
+        among: ["scheduled"]
+        init: "scheduled";
+
+    parameter "Intensity threshold"
+        var: intensity_threshold
+        among: [2.86, 3.0, 3.5]
+        init: 2.86;
+
+    reflex save_results {
+
+        ask simulations {
+
+            write "threshold: " + intensity_threshold;
+
+            save [
+                intensity_threshold,
+                maintenance_type,
+                maintenance_actions,
+                accepted_flood_days,
+                flooding_days,
+                degraded_vegetation_days,
+                poor_well_being_days
+            ]
+            to: "rainfall_intensity_results.csv"
+            format: "csv"
+            rewrite: false
+            header: true;
+        }
+    }
 }
 
 // Simple run of model without interface 
