@@ -546,7 +546,6 @@ species component {
 	}
 
 	action update_output_flows (float current_inflow){
-		write current_inflow;
 		matrix data <- matrix(output_flow_LT_file);
 		
 			
@@ -1283,7 +1282,6 @@ species maintenance {
 			if (linked_failure_name = "plant_removal") {
 				execution_month_delay <- 16.0;
 				execution_start <- current_date;
-				write "hello execution delay is " + (execution_start + execution_month_delay #month);
 			}
 			if (linked_failure_name != "plant_removal"){
 				int nb_failures <- length(impacted_component.my_failures);
@@ -1416,7 +1414,6 @@ species rtf_maintenance parent: maintenance {
 		do check_veg_negative_impact();
 		if (impacted_component is vegetal_component){
 			if (impacted_component.my_name = "vegetation_cover"){
-				write "youpiiii";
 			}
 			execution_month_delay <- check_veg_delay();
 		}
