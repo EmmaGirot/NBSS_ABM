@@ -208,8 +208,6 @@ global {
 		}
 
 	ask NBSS where (each.nbss_id = 2) {
-		local_runoff_in <- 10.0;
-	inlet_condition <- 1.0; // normal downstream swale
 
 	if connection_config = 1 {
 		use_local_runoff <- true;
@@ -231,15 +229,13 @@ global {
 }
 
 	ask NBSS where (each.nbss_id = 1) {
-		local_runoff_in <- 10.0;
-	inlet_condition <- 0.5; // partially clogged upstream swale
 
 	use_local_runoff <- true;
 	use_upstream_managed_flow <- false;
 	use_upstream_overflow <- false;
 	add self to:ordered_nbss;
 }
-write "NBSS from up to downstrem : "+ordered_nbss;
+write "NBSS from up to downstream : "+ordered_nbss;
 
 		create urban_environment {
 			my_name <- "Urban environment";
@@ -304,8 +300,8 @@ write "NBSS from up to downstrem : "+ordered_nbss;
 		
 	//NBSS1 is upstream and NBSS2 is downstream
 	ask NBSS {
-		if nbss_id=2 {my_upstream_NBSS<-NBSS-self;}
-		if nbss_id=1 {my_downstream_NBSS<-NBSS-self;}	
+		if nbss_id=2 {my_upstream_NBSS<-self;}
+		if nbss_id=1 {my_downstream_NBSS<-self;}	
 	}	
 		
 		
@@ -332,14 +328,11 @@ write "NBSS from up to downstrem : "+ordered_nbss;
 	write "---- 2-swale test ----";
 	
 	
-	ask NBSS where (each.nbss_id=1) {
-	write "outflow from the first NBSS (nbss1) : " + outflow_to_next;
-	}
-	
 	ask NBSS where (each.nbss_id=2) {
-	write "inflow from the first NBSS (nbss1) to the second (nbss2) : " + upstream_outflow_in;
-	write "inflow from the runoff for the second NBSS (nbss2) : " + local_runoff_in;
-	write "total inflow for NBSS1 (runoff and from nbss1) : "+total_inflow;
+		write "managed outflow from the first NBSS (nbss1) to the second (nbss2) : " + upstream_managed_in;
+		write "unmanaged outflow from the first NBSS (nbss1) to the second (nbss2) : " + upstream_overflow_in;
+		write "inflow from the runoff for the second NBSS (nbss2) : " + runoff_flow;
+		write "total inflow for NBSS2 (runoff and from nbss1) : "+ total_inflow;
 	}
 
 	write "********************";
@@ -430,24 +423,7 @@ species rain {
 species NBSS {
 	string my_name;
 	int nbss_id;
-//	NBSS upstream_nbss;
-//	NBSS downstream_nbss;
-
-	float local_runoff_in <- 0.0;
-	float upstream_outflow_in <- 0.0;
-	float total_inflow <- 0.0;
-	float outflow_to_next <- 0.0;
 	
-
-	float upstream_managed_in <- 0.0;
-	float upstream_overflow_in <- 0.0;
-	
-	bool use_local_runoff <- true;
-	bool use_upstream_managed_flow <- false;
-	bool use_upstream_overflow <- false;
-
-	float inlet_condition <- 1.0;
-
 	inlet my_inlet; 
 	ponding_area my_ponding_area;
 	filter_media my_filter_media; 
@@ -459,10 +435,17 @@ species NBSS {
 	list<component> my_components;
 	rgb my_color<-#yellow;
 
+	NBSS my_downstream_NBSS;
+	NBSS my_upstream_NBSS;
 	
-	//list of all NBSS linked to that NBSS by downstream
-	list<NBSS> my_downstream_NBSS;
-	list<NBSS> my_upstream_NBSS;
+	// these are the parameters that help calculate flow between upstream NBSS and downstream NBSS
+	float upstream_managed_in <- 0.0;
+	float upstream_overflow_in <- 0.0;
+	float total_inflow <- 0.0;
+	float runoff_flow <- 0.0;
+	bool use_local_runoff <- true;
+	bool use_upstream_managed_flow <- false;
+	bool use_upstream_overflow <- false;
 	
 	float my_global_condition;
 	
@@ -563,119 +546,111 @@ species component {
 	}
 
 	action update_output_flows (float current_inflow){
+		write current_inflow;
 		matrix data <- matrix(output_flow_LT_file);
 		
 			
-//add the integration of connected NBSS
+	//add the integration of connected NBSS
 		// the downstream NBSS collects flow from : 
 		// (1) managed outflow of upstream NBSS outlets
 		// (2) unmanaged outflows of upstream NBSS inlets and ponding areas
 		// (3) direct runoff from rain 
+		
+		
+		// if the component is the inlet of the downstream component 
 		if my_NBSS.my_upstream_NBSS != nil and my_upstream_comp = nil {
 
-	NBSS upstream_swale <- my_NBSS.my_upstream_NBSS;
-
-write upstream_swale;
-
-	int local_flow <- 0;
-	int upstream_managed_flow <- 0;
-	int inlet_overflow <- 0;
-	int ponding_overflow <- 0;
-	int overflow_flow <- 0;
-	int combined_flow <- 0;
-
-	// 1. Local runoff
-	if my_NBSS.use_local_runoff {
-		local_flow <- int(current_inflow);
-	}
-
-	// 2. Managed flow from the upstream outlet
-if my_NBSS.use_upstream_managed_flow {
-
-    if upstream_swale != nil and upstream_swale.my_outlet != nil {
-        upstream_managed_flow <- int(
-            upstream_swale.my_outlet.my_output_managed_flow.my_flow
-        );
-    }
-    else {
-        upstream_managed_flow <- 0;
-
-        write "WARNING: no outlet found for upstream swale "
-            + upstream_swale;
-    }
-}
-
-	// 3. Unmanaged flow / overflow from upstream
-if my_NBSS.use_upstream_overflow {
-
-    if upstream_swale.my_inlet != nil {
-        inlet_overflow <- int(
-            upstream_swale.my_inlet.my_output_unmanaged_flow.my_flow
-        );
-    }
-    else {
-        inlet_overflow <- 0;
-    }
-
-    if upstream_swale.my_ponding_area != nil {
-        ponding_overflow <- int(
-            upstream_swale.my_ponding_area.my_output_unmanaged_flow.my_flow
-        );
-    }
-    else {
-        ponding_overflow <- 0;
-    }
-
-
-		// Combine the two overflow sources
-		if inlet_overflow = 0 {
-			overflow_flow <- ponding_overflow;
-		}
-		else if ponding_overflow = 0 {
-			overflow_flow <- inlet_overflow;
-		}
-		else {
-			overflow_flow <- flow_combination_matrix at {
-				inlet_overflow - 1,
-				ponding_overflow - 1
-			};
-		}
-	}
-
-	// Combine local runoff and managed flow
-	if local_flow = 0 {
-    combined_flow <- upstream_managed_flow;
-}
-else if upstream_managed_flow = 0 {
-    combined_flow <- local_flow;
-}
-else {
-    combined_flow <- flow_combination_matrix at {
-        local_flow - 1,
-        upstream_managed_flow - 1
-    };
-}
-
-	// Add upstream overflow
-	if combined_flow = 0 {
-		combined_flow <- overflow_flow;
-	}
-	else if overflow_flow != 0 {
-		combined_flow <- flow_combination_matrix at {
-			combined_flow - 1,
-			overflow_flow - 1
-		};
-	}
-
-my_NBSS.upstream_managed_in <- upstream_managed_flow;
-	my_NBSS.upstream_overflow_in <- overflow_flow;
-	my_NBSS.total_inflow <- combined_flow;
-
-	// Use the combined value in the lookup table below
-	current_inflow <- combined_flow;
-}
+	
+			int local_flow <- 0;
+			int upstream_managed_flow <- 0;
+			int inlet_overflow <- 0;
+			int ponding_overflow <- 0;
+			int overflow_flow <- 0;
+			int combined_flow <- 0;
+	
+			// 1. Local runoff
+			if my_NBSS.use_local_runoff {
+				local_flow <- int(current_inflow);
+				my_NBSS.runoff_flow <- local_flow;
+			}
+	
+			// 2. Managed flow from the upstream outlet
+			if my_NBSS.use_upstream_managed_flow {
+	
+	    		if my_NBSS.my_upstream_NBSS.my_outlet != nil {
+	        	upstream_managed_flow <- int(my_NBSS.my_upstream_NBSS.my_outlet.my_output_managed_flow.my_flow);
+	    		}
+	    		else {
+	        		upstream_managed_flow <- 0;
+		        write "WARNING: no outlet found for upstream swale "
+		            + my_NBSS.my_upstream_NBSS;
+		    	}
+			}
+	
+			// 3. Unmanaged flow / overflow from upstream
+			if my_NBSS.use_upstream_overflow {
+	
+		   		if my_NBSS.my_upstream_NBSS.my_inlet != nil {
+		        inlet_overflow <- int(my_NBSS.my_upstream_NBSS.my_inlet.my_output_unmanaged_flow.my_flow);
+		    	}
+			    else {
+			        inlet_overflow <- 0;
+			    }
 		
-
+			    if my_NBSS.my_upstream_NBSS.my_ponding_area != nil {
+			        ponding_overflow <- int(my_NBSS.my_upstream_NBSS.my_ponding_area.my_output_unmanaged_flow.my_flow);
+			    }
+			    else {
+			        ponding_overflow <- 0;
+			    }
+		
+		
+				// Combine the two overflow sources
+				if inlet_overflow = 0 {
+					overflow_flow <- ponding_overflow;
+				}
+				else if ponding_overflow = 0 {
+					overflow_flow <- inlet_overflow;
+				}
+				else {
+					overflow_flow <- flow_combination_matrix at {
+						inlet_overflow - 1,
+						ponding_overflow - 1
+					};
+				}
+			}
+	
+			// Combine local runoff and managed flow
+			if local_flow = 0 {
+		    combined_flow <- upstream_managed_flow;
+			}
+			else if upstream_managed_flow = 0 {
+			    combined_flow <- local_flow;
+			}
+			else {
+			    combined_flow <- flow_combination_matrix at {
+			        local_flow - 1,
+			        upstream_managed_flow - 1
+			    };
+			}
+		
+			// Add upstream overflow
+			if combined_flow = 0 {
+				combined_flow <- overflow_flow;
+			}
+			else if overflow_flow != 0 {
+				combined_flow <- flow_combination_matrix at {
+					combined_flow - 1,
+					overflow_flow - 1
+				};
+			}
+	
+			my_NBSS.upstream_managed_in <- upstream_managed_flow;
+			my_NBSS.upstream_overflow_in <- overflow_flow;
+			my_NBSS.total_inflow <- combined_flow;
+			// Use the combined value in the lookup table below
+			current_inflow <- combined_flow;
+	}
 		
 		
 		//loop on the matrix rows (skip the first header line)
@@ -686,11 +661,6 @@ my_NBSS.upstream_managed_in <- upstream_managed_flow;
 			}
 		}
 		
-		
-			 //if outlet, outlet to next (by default managed flow)
-		if my_downstream_comp=nil and my_NBSS.my_upstream_NBSS!=nil  {
-			my_NBSS.outflow_to_next<-my_output_managed_flow.my_flow;	
-		}
 		
 		
 	}
