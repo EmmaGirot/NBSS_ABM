@@ -37,8 +37,8 @@ global {
 	file weather_file <- csv_file("../includes/climate/weather_input_gama_with_intensity.csv",",");
 	matrix weather_data <- matrix(weather_file);
 	// Setting simulation timeline
-	date starting_date <- date(weather_data[0,0]);  // starting date of simulation;
-	date end_date <- date(weather_data[0,length(rows_list(weather_data))-1]);
+	date starting_date <- date(string(int(weather_data[0,0])));  // starting date of simulation;
+	date end_date <- date(string(int(weather_data[0,length(rows_list(weather_data))-1])));
 	float simulation_duration <- float((years_between(starting_date,end_date)));
 
 	
@@ -98,6 +98,12 @@ global {
 	
 	init {
 		
+		current_date<-starting_date;
+
+
+write current_date;
+
+
 		// Initialization of Rain agent : 
 		create rain {
 			create managed_flow{
@@ -207,6 +213,16 @@ global {
 			
 		}
 
+	//Upstream NBSS
+	ask NBSS where (each.nbss_id = 1) {
+
+	use_local_runoff <- true;
+	use_upstream_managed_flow <- false;
+	use_upstream_overflow <- false;
+	add self to:ordered_nbss;
+}
+
+	//Downstream NBSS
 	ask NBSS where (each.nbss_id = 2) {
 
 	if connection_config = 1 {
@@ -228,13 +244,7 @@ global {
 	add self to:ordered_nbss;
 }
 
-	ask NBSS where (each.nbss_id = 1) {
 
-	use_local_runoff <- true;
-	use_upstream_managed_flow <- false;
-	use_upstream_overflow <- false;
-	add self to:ordered_nbss;
-}
 write "NBSS from up to downstream : "+ordered_nbss;
 
 		create urban_environment {
@@ -298,12 +308,34 @@ write "NBSS from up to downstream : "+ordered_nbss;
 	
 		
 		
-	//NBSS1 is upstream and NBSS2 is downstream
-	ask NBSS {
-		if nbss_id=2 {my_upstream_NBSS<-self;}
-		if nbss_id=1 {my_downstream_NBSS<-self;}	
-	}	
-		
+	// NBSS1 is upstream and NBSS2 is downstream
+NBSS upstream_nbss <- first(NBSS where (each.nbss_id = 1));
+NBSS downstream_nbss <- first(NBSS where (each.nbss_id = 2));
+
+ask downstream_nbss {
+    my_upstream_NBSS <- upstream_nbss;
+}
+
+ask upstream_nbss {
+    my_downstream_NBSS <- downstream_nbss;
+}
+	
+	// Temporary diagnostic check
+ask NBSS where (each.nbss_id = 2) {
+    if my_upstream_NBSS != nil {
+        write "NBSS2 upstream NBSS id: " + my_upstream_NBSS.nbss_id;
+    } else {
+        write "NBSS2 upstream NBSS id: nil";
+    }
+}
+
+ask NBSS where (each.nbss_id = 1) {
+    if my_downstream_NBSS != nil {
+        write "NBSS1 downstream NBSS id: " + my_downstream_NBSS.nbss_id;
+    } else {
+        write "NBSS1 downstream NBSS id: nil";
+    }
+}	
 		
 		
 	}	
@@ -324,9 +356,10 @@ write "NBSS from up to downstream : "+ordered_nbss;
 		}
 	}
 	
-	reflex debug_2swale_transfer {
+reflex debug_2swale_transfer {
 	write "---- 2-swale test ----";
 	
+	write "date: "+current_date;
 	
 	ask NBSS where (each.nbss_id=2) {
 		write "managed outflow from the first NBSS (nbss1) to the second (nbss2) : " + upstream_managed_in;
@@ -334,7 +367,6 @@ write "NBSS from up to downstream : "+ordered_nbss;
 		write "inflow from the runoff for the second NBSS (nbss2) : " + runoff_flow;
 		write "total inflow for NBSS2 (runoff and from nbss1) : "+ total_inflow;
 	}
-
 	write "********************";
 }
 
@@ -385,7 +417,7 @@ species rain {
 	action create_runoff {
 		runoff.my_flow <- 0.0;
 		loop i from:0 to:weather_data.rows-1 {
-			if current_date = date(weather_data[0,i]) {
+			if current_date = date(string(int(weather_data[0,i]))) {
 				//Rainfall event <= 20mm in a day are considered as a runoff flow of 1
 				if (float(weather_data[1,i]) <= 15.0 and float(weather_data[1,i]) > 5.0) {
 					runoff.my_flow <- 1.0;
@@ -613,8 +645,8 @@ species component {
 				}
 				else {
 					overflow_flow <- flow_combination_matrix at {
-						inlet_overflow - 1,
-						ponding_overflow - 1
+						inlet_overflow,
+						ponding_overflow
 					};
 				}
 			}
@@ -628,8 +660,8 @@ species component {
 			}
 			else {
 			    combined_flow <- flow_combination_matrix at {
-			        local_flow - 1,
-			        upstream_managed_flow - 1
+			        local_flow,
+			        upstream_managed_flow
 			    };
 			}
 		
@@ -639,8 +671,8 @@ species component {
 			}
 			else if overflow_flow != 0 {
 				combined_flow <- flow_combination_matrix at {
-					combined_flow - 1,
-					overflow_flow - 1
+					combined_flow,
+					overflow_flow
 				};
 			}
 	
@@ -1553,6 +1585,7 @@ experiment "run" type: gui {
 		}
 	
 }
+
 
 // Interface 
 experiment "Interface (EN)"	type: gui {
