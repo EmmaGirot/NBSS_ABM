@@ -1,0 +1,10 @@
+intensity_threshold,maintenance_type,maintenance_actions,accepted_flood_days,flooding_days,degraded_vegetation_days,poor_well_being_days
+2.86,scheduled,2076,0,0,0,6502
+2.86,scheduled,2076,0,0,0,6698
+2.86,scheduled,2076,0,0,0,6506
+3.0,scheduled,2076,0,0,0,6740
+3.0,scheduled,2076,0,0,0,6486
+3.0,scheduled,2076,0,0,0,6354
+3.5,scheduled,2076,0,0,0,6472
+3.5,scheduled,2076,0,0,0,6410
+3.5,scheduled,2076,0,0,0,7000

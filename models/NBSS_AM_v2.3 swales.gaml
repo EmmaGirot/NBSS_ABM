@@ -37,8 +37,8 @@ global {
 	file weather_file <- csv_file("../includes/climate/weather_input_gama_with_intensity.csv",",");
 	matrix weather_data <- matrix(weather_file);
 	// Setting simulation timeline
-	date starting_date <- date(weather_data[0,0]);  // starting date of simulation;
-	date end_date <- date(weather_data[0,length(rows_list(weather_data))-1]);
+	date starting_date <- date(string(int(weather_data[0,0])));  // starting date of simulation;
+	date end_date <- date(string(int(weather_data[0,length(rows_list(weather_data))-1])));
 	float simulation_duration <- float((years_between(starting_date,end_date)));
 
 	
@@ -69,6 +69,7 @@ global {
 	// Loading csv files that has the logic table which calculates the output flow depending on input and condition values
 	file output_flow_LT_file <- csv_file( "../includes/output_flow_LT.csv",';',int);
 	bool end_sim<-false;
+	bool is_batch<-false;
 		
 	// maintenance parameters 
 	string maintenance_type <- "scheduled";
@@ -81,11 +82,31 @@ global {
 	int degraded_vegetation_days <- 0; 
 	int poor_well_being_days <-0;
 	
-	//Intensity thresholds
+	//Intensity threshold (mm/h)
 	float intensity_threshold <- 2.86;
+
+	// connection type between 2 swales
+	int connection_config <- 1;
+	// 1 = runoff + managed pipe + overflow
+	// 2 = managed pipe + overflow
+	// 3 = runoff + overflow
+	
+    matrix<int> flow_combination_matrix <- matrix([
+        [0, 1, 2, 3],
+        [1, 1, 2, 3],
+        [2, 2, 3, 3],
+        [3, 3, 3, 3]
+    ]);
+
 	
 	init {
 		
+		current_date<-starting_date;
+
+
+write current_date;
+
+
 		// Initialization of Rain agent : 
 		create rain {
 			create managed_flow{
@@ -195,14 +216,39 @@ global {
 			
 		}
 
-	ask NBSS where (each.nbss_id = 2) {
+	//Upstream NBSS
+	ask NBSS where (each.nbss_id = 1) {
+
+	use_local_runoff <- true;
+	use_upstream_managed_flow <- false;
+	use_upstream_overflow <- false;
 	add self to:ordered_nbss;
 }
 
-	ask NBSS where (each.nbss_id = 1) {
+	//Downstream NBSS
+	ask NBSS where (each.nbss_id = 2) {
+
+	if connection_config = 1 {
+		use_local_runoff <- true;
+		use_upstream_managed_flow <- true;
+		use_upstream_overflow <- true;
+	}
+	else if connection_config = 2 {
+		use_local_runoff <- false;
+		use_upstream_managed_flow <- true;
+		use_upstream_overflow <- true;
+	}
+	else if connection_config = 3 {
+		use_local_runoff <- true;
+		use_upstream_managed_flow <- false;
+		use_upstream_overflow <- true;
+	}
+	
 	add self to:ordered_nbss;
 }
-write "NBSS from up to downstrem : "+ordered_nbss;
+
+
+write "NBSS from up to downstream : "+ordered_nbss;
 
 		create urban_environment {
 			my_name <- "Urban environment";
@@ -265,12 +311,34 @@ write "NBSS from up to downstrem : "+ordered_nbss;
 	
 		
 		
-	//adding of NBSS1 in the downstream of NBSS2	
-	ask NBSS {
-		if nbss_id=1 {my_upstream_NBSS<-NBSS-self;}
-		if nbss_id=2 {my_downstream_NBSS<-NBSS-self;}	
-	}	
-		
+	// NBSS1 is upstream and NBSS2 is downstream
+NBSS upstream_nbss <- first(NBSS where (each.nbss_id = 1));
+NBSS downstream_nbss <- first(NBSS where (each.nbss_id = 2));
+
+ask downstream_nbss {
+    my_upstream_NBSS <- upstream_nbss;
+}
+
+ask upstream_nbss {
+    my_downstream_NBSS <- downstream_nbss;
+}
+	
+	// Temporary diagnostic check
+ask NBSS where (each.nbss_id = 2) {
+    if my_upstream_NBSS != nil {
+        write "NBSS2 upstream NBSS id: " + my_upstream_NBSS.nbss_id;
+    } else {
+        write "NBSS2 upstream NBSS id: nil";
+    }
+}
+
+ask NBSS where (each.nbss_id = 1) {
+    if my_downstream_NBSS != nil {
+        write "NBSS1 downstream NBSS id: " + my_downstream_NBSS.nbss_id;
+    } else {
+        write "NBSS1 downstream NBSS id: nil";
+    }
+}	
 		
 		
 	}	
@@ -291,25 +359,22 @@ write "NBSS from up to downstrem : "+ordered_nbss;
 		}
 	}
 	
-	reflex debug_2swale_transfer {
+reflex debug_2swale_transfer {
 	write "---- 2-swale test ----";
 	
+	write "date: "+current_date;
 	
 	ask NBSS where (each.nbss_id=2) {
-	write "outflow from the first NBSS (nbss2) : " + outflow_to_next;
+		write "managed outflow from the first NBSS (nbss1) to the second (nbss2) : " + upstream_managed_in;
+		write "unmanaged outflow from the first NBSS (nbss1) to the second (nbss2) : " + upstream_overflow_in;
+		write "inflow from the runoff for the second NBSS (nbss2) : " + runoff_flow;
+		write "total inflow for NBSS2 (runoff and from nbss1) : "+ total_inflow;
 	}
-	
-	ask NBSS where (each.nbss_id=1) {
-	write "inflow from the first NBSS (nbss2) to the second (nbss1) : " + upstream_outflow_in;
-	write "inflow from the runoff for the second NBSS (nbss1) : " + local_runoff_in;
-	write "total inflow for NBSS1 (runoff and from nbss2) : "+total_inflow;
-	}
-
 	write "********************";
 }
 
 		
-	reflex stop_simulation when: current_date = end_date {
+	reflex stop_simulation when: current_date = end_date and !is_batch{
 		end_sim<-true;
 		do pause;
 	}
@@ -355,12 +420,12 @@ species rain {
 	action create_runoff {
 		runoff.my_flow <- 0.0;
 		loop i from:0 to:weather_data.rows-1 {
-			if current_date = date(weather_data[0,i]) {
+			if current_date = date(string(int(weather_data[0,i]))) {
 				//Rainfall event <= 20mm in a day are considered as a runoff flow of 1
 				if (float(weather_data[1,i]) <= 15.0 and float(weather_data[1,i]) > 5.0) {
 					runoff.my_flow <- 1.0;
 					// Swarna for intensity classes
-					//if the intensity of a rain class 1 is higher than 2.86 mm/h than rain is considered class 2
+					//if the intensity of a rain class 1 is higher than the selected intensity threshold (mm/h), than rain is considered class 2
 					if (float(weather_data[2,i]) >= intensity_threshold) {
 					runoff.my_flow <- 2.0;
 					}
@@ -393,16 +458,7 @@ species rain {
 species NBSS {
 	string my_name;
 	int nbss_id;
-//	NBSS upstream_nbss;
-//	NBSS downstream_nbss;
-
-	float local_runoff_in <- 0.0;
-	float upstream_outflow_in <- 0.0;
-	float total_inflow <- 0.0;
-	float outflow_to_next <- 0.0;
-
-	float inlet_condition <- 1.0;
-
+	
 	inlet my_inlet; 
 	ponding_area my_ponding_area;
 	filter_media my_filter_media; 
@@ -414,10 +470,17 @@ species NBSS {
 	list<component> my_components;
 	rgb my_color<-#yellow;
 
+	NBSS my_downstream_NBSS;
+	NBSS my_upstream_NBSS;
 	
-	//list of all NBSS linked to that NBSS by downstream
-	list<NBSS> my_downstream_NBSS;
-	list<NBSS> my_upstream_NBSS;
+	// these are the parameters that help calculate flow between upstream NBSS and downstream NBSS
+	float upstream_managed_in <- 0.0;
+	float upstream_overflow_in <- 0.0;
+	float total_inflow <- 0.0;
+	float runoff_flow <- 0.0;
+	bool use_local_runoff <- true;
+	bool use_upstream_managed_flow <- false;
+	bool use_upstream_overflow <- false;
 	
 	float my_global_condition;
 	
@@ -521,65 +584,107 @@ species component {
 		matrix data <- matrix(output_flow_LT_file);
 		
 			
-//add the integration of connected NBSS
+	//add the integration of connected NBSS
 		// the downstream NBSS collects flow from : 
 		// (1) managed outflow of upstream NBSS outlets
 		// (2) unmanaged outflows of upstream NBSS inlets and ponding areas
 		// (3) direct runoff from rain 
-		if my_NBSS.my_upstream_NBSS!=nil and my_upstream_comp=nil {
-			// rules for outflow to consider by downstream NBSS when there is more than one upstream NBSS 
-			//  (1) first we have to consider the managed outflow of the upstream NBSS outlets
-			float managed_outflow_to_consider; 
-			// if all upstream NBSS all have an outflow value of 2, the total outflow to consider is 3
-			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_outlet.my_output_managed_flow.my_flow))))=1 {
-				if (any(my_NBSS.my_upstream_NBSS collect (each.my_outlet.my_output_managed_flow.my_flow)))=2 {
-					managed_outflow_to_consider <-3;
-				}
-			}
-			//otherwise, if the outflow values of the upstream NBSS are different, take the maximum value
-			else {managed_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_outlet.my_output_managed_flow.my_flow);}
-			
-			// (2) then we have to consider the unmanaged outflow of upstreams NBSS 
-			// unmanaged outflow can come from stormwater that didn't go through the inlet or stormwater that overflowed from ponding area (unmanaged outflow from outlet is managed by ponding area)
-			// same rules as managed outflow apply for unmanaged inlet outflow  and unmanaged pa outflow
-			float unmanaged_inlet_outflow_to_consider; 
-			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_inlet.my_output_unmanaged_flow.my_flow))))=1{
-				if (any(my_NBSS.my_upstream_NBSS collect (each.my_inlet.my_output_unmanaged_flow.my_flow)))=2 {
-					unmanaged_inlet_outflow_to_consider <-3;
-				}
-			}
-			else {unmanaged_inlet_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_inlet.my_output_unmanaged_flow.my_flow);}
-			float unmanaged_pa_outflow_to_consider;		
-			if (length(distinct(my_NBSS.my_upstream_NBSS collect(each.my_ponding_area.my_output_unmanaged_flow.my_flow))))=1{
-				if (any(my_NBSS.my_upstream_NBSS collect (each.my_ponding_area.my_output_unmanaged_flow.my_flow)))=2 {
-					unmanaged_pa_outflow_to_consider <-3;
-				}
-			}
-			else {unmanaged_pa_outflow_to_consider <- my_NBSS.my_upstream_NBSS max_of(each.my_ponding_area.my_output_unmanaged_flow.my_flow);}
-			
-			//then the total unmanaged outflow to consider follows the same rule as above with the inlet unmanaged and ponding area unmanaged outflows
-			float unmanaged_outflow_to_consider;
-			if (unmanaged_inlet_outflow_to_consider=unmanaged_pa_outflow_to_consider and unmanaged_pa_outflow_to_consider=2){
-				unmanaged_outflow_to_consider <- 3;
-				}
-			else {unmanaged_outflow_to_consider <-max(unmanaged_inlet_outflow_to_consider,unmanaged_pa_outflow_to_consider);}	
-			
-			// then we have to add the unmanaged_outflow_to_consider to the managed_outflow 
-			float total_outflows_to_consider;
-			if (unmanaged_outflow_to_consider=managed_outflow_to_consider and unmanaged_outflow_to_consider=2){
-				total_outflows_to_consider <- 3;
-				}
-			else {total_outflows_to_consider <-max(unmanaged_outflow_to_consider,managed_outflow_to_consider);}
-			
-			// (3) then we have to add the direct runoff from rain  
-			if (total_outflows_to_consider=current_inflow and current_inflow=2){
-				my_NBSS.total_inflow <- 3;
-				}
-			else {my_NBSS.total_inflow <-max(managed_outflow_to_consider,current_inflow);}			
-	
-		}		
 		
+		
+		// if the component is the inlet of the downstream component 
+		if my_NBSS.my_upstream_NBSS != nil and my_upstream_comp = nil {
 
+	
+			int local_flow <- 0;
+			int upstream_managed_flow <- 0;
+			int inlet_overflow <- 0;
+			int ponding_overflow <- 0;
+			int overflow_flow <- 0;
+			int combined_flow <- 0;
+	
+			// 1. Local runoff
+			if my_NBSS.use_local_runoff {
+				local_flow <- int(current_inflow);
+				my_NBSS.runoff_flow <- local_flow;
+			}
+	
+			// 2. Managed flow from the upstream outlet
+			if my_NBSS.use_upstream_managed_flow {
+	
+	    		if my_NBSS.my_upstream_NBSS.my_outlet != nil {
+	        	upstream_managed_flow <- int(my_NBSS.my_upstream_NBSS.my_outlet.my_output_managed_flow.my_flow);
+	    		}
+	    		else {
+	        		upstream_managed_flow <- 0;
+		        write "WARNING: no outlet found for upstream swale "
+		            + my_NBSS.my_upstream_NBSS;
+		    	}
+			}
+	
+			// 3. Unmanaged flow / overflow from upstream
+			if my_NBSS.use_upstream_overflow {
+	
+		   		if my_NBSS.my_upstream_NBSS.my_inlet != nil {
+		        inlet_overflow <- int(my_NBSS.my_upstream_NBSS.my_inlet.my_output_unmanaged_flow.my_flow);
+		    	}
+			    else {
+			        inlet_overflow <- 0;
+			    }
+		
+			    if my_NBSS.my_upstream_NBSS.my_ponding_area != nil {
+			        ponding_overflow <- int(my_NBSS.my_upstream_NBSS.my_ponding_area.my_output_unmanaged_flow.my_flow);
+			    }
+			    else {
+			        ponding_overflow <- 0;
+			    }
+		
+		
+				// Combine the two overflow sources
+				if inlet_overflow = 0 {
+					overflow_flow <- ponding_overflow;
+				}
+				else if ponding_overflow = 0 {
+					overflow_flow <- inlet_overflow;
+				}
+				else {
+					overflow_flow <- flow_combination_matrix at {
+						inlet_overflow,
+						ponding_overflow
+					};
+				}
+			}
+	
+			// Combine local runoff and managed flow
+			if local_flow = 0 {
+		    combined_flow <- upstream_managed_flow;
+			}
+			else if upstream_managed_flow = 0 {
+			    combined_flow <- local_flow;
+			}
+			else {
+			    combined_flow <- flow_combination_matrix at {
+			        local_flow,
+			        upstream_managed_flow
+			    };
+			}
+		
+			// Add upstream overflow
+			if combined_flow = 0 {
+				combined_flow <- overflow_flow;
+			}
+			else if overflow_flow != 0 {
+				combined_flow <- flow_combination_matrix at {
+					combined_flow,
+					overflow_flow
+				};
+			}
+	
+			my_NBSS.upstream_managed_in <- upstream_managed_flow;
+			my_NBSS.upstream_overflow_in <- overflow_flow;
+			my_NBSS.total_inflow <- combined_flow;
+			// Use the combined value in the lookup table below
+			current_inflow <- combined_flow;
+	}
 		
 		
 		//loop on the matrix rows (skip the first header line)
@@ -590,11 +695,6 @@ species component {
 			}
 		}
 		
-		
-			 //if outlet, outlet to next (by default managed flow)
-		if my_downstream_comp=nil and my_NBSS.my_upstream_NBSS!=nil  {
-			my_NBSS.outflow_to_next<-my_output_managed_flow.my_flow;	
-		}
 		
 		
 	}
@@ -1217,7 +1317,6 @@ species maintenance {
 			if (linked_failure_name = "plant_removal") {
 				execution_month_delay <- 16.0;
 				execution_start <- current_date;
-				write "hello execution delay is " + (execution_start + execution_month_delay #month);
 			}
 			if (linked_failure_name != "plant_removal"){
 				int nb_failures <- length(impacted_component.my_failures);
@@ -1350,7 +1449,6 @@ species rtf_maintenance parent: maintenance {
 		do check_veg_negative_impact();
 		if (impacted_component is vegetal_component){
 			if (impacted_component.my_name = "vegetation_cover"){
-				write "youpiiii";
 			}
 			execution_month_delay <- check_veg_delay();
 		}
@@ -1474,6 +1572,7 @@ experiment "explore" type: batch repeat:10 until: (current_date = end_date) {
 }
 
 experiment "rainfall intensity sensitivity" type: batch repeat: 3
+parallel: true
 until: (current_date = end_date) {
 
     parameter "Maintenance"
@@ -1485,6 +1584,10 @@ until: (current_date = end_date) {
         var: intensity_threshold
         among: [2.86, 3.0, 3.5]
         init: 2.86;
+
+	parameter "Batch mode"
+        var: is_batch
+        init: true;
 
     reflex save_results {
 
@@ -1501,7 +1604,7 @@ until: (current_date = end_date) {
                 degraded_vegetation_days,
                 poor_well_being_days
             ]
-            to: "rainfall_intensity_results.csv"
+            to: "../results/rainfall_intensity_results.csv"
             format: "csv"
             rewrite: false
             header: true;
@@ -1526,6 +1629,7 @@ experiment "run" type: gui {
 		}
 	
 }
+
 
 // Interface 
 experiment "Interface (EN)"	type: gui {
