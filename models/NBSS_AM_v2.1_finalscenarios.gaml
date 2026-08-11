@@ -67,7 +67,7 @@ global {
 		
 	// maintenance input parameters 
 	// maintenance_type refers to the type of maintenance plan we're testing
-	string maintenance_type <- "preventive_seasonal";
+	string maintenance_type <- "no_maintenance";
 	// nb of days needed to intervene in a corrective maintenance plan
 	int intervention_delay_days <- 10;// parameter:true  min:2 max: 30;
 	
