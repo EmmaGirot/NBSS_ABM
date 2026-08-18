@@ -1,0 +1,11 @@
+﻿maintenance_practice;failure_event;disturbance_level;target_season
+trash_removal;trash_acc
+leaf_removal;leaf_acc
+invasive_veg_removal;invasive_plants;medium
+tree_management;pathogens;medium
+excess_veg_removal;excess_veg;medium;autumn
+fm_sediment_removal;partpoll_acc;;winter
+watering;drought_stress;low
+plant_maintenance;unhealthy_veg_on_fm;low
+veg_sediment_removal;clogged_fm_on_veg;low;winter
+veg_replanting;plant_removal;high;spring

@@ -1,2 +1,2 @@
-failure_name;impacted_agent;impacted_attribute;threshold
-partpoll_acc;filter_media;my_qtf;0.9
+failure_name;impacted_agent;impacted_attribute;acc_rate;threshold
+partpoll_acc;filter_media;my_fqt;0.3;0.9
