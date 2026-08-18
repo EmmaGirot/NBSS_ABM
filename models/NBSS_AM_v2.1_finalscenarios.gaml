@@ -33,6 +33,8 @@ global {
 	float step1 <- 1.0;
 
 	
+	bool mode_batch<-true;
+	
 	// Setting simulation timeline
 	date starting_date <- date(string(int(weather_data[0,0])));  // starting date of simulation;
 	date end_date <- date(string(int(weather_data[0,length(rows_list(weather_data))-1])));
@@ -67,7 +69,7 @@ global {
 		
 	// maintenance input parameters 
 	// maintenance_type refers to the type of maintenance plan we're testing
-	string maintenance_type <- "no_maintenance";
+	string maintenance_type <- "no maintenance";
 	// nb of days needed to intervene in a corrective maintenance plan
 	int intervention_delay_days <- 10;// parameter:true  min:2 max: 30;
 	
@@ -230,7 +232,7 @@ global {
 		// The "scheduled" maintenance refers to a blindly scheduled maintenance plan written in the maintenance_scheduled.csv file
 		// For this plan, the model will be creating as many maintenance practice agent as there are lines in the CSV file. 
 		if "scheduled" in maintenance_type {
-			create scheduled_maintenance from:csv_file( "../includes/maintenance_scheduled.csv",';',true) with:
+			create scheduled_maintenance from:csv_file( "../includes/maintenance_programmed.csv",';',true) with:
 				[practice_name::string(get("practice_name")), 
 					maintenance_frequency::float(get("practice_frequency_weeks")), 
 					prog_season_dep::bool(get("season_dep")),
@@ -256,13 +258,13 @@ global {
 	
 	reflex save_results when : (current_date=end_date){
 		
-		   save [maintenance_type,maintenance_ressources,flooding_days,degraded_vegetation_days,poor_well_being_days] to: "results_updated.csv" format:"csv" rewrite: false header: true ;
+		   save [maintenance_type,maintenance_ressources,flooding_days,degraded_vegetation_days,poor_well_being_days] to: "results_multi_sim_v3.csv" format:"csv" rewrite: false header: true ;
 		
 	}
 			
 	reflex stop_simulation when: (current_date > end_date){
     	end_sim<-true;
-		do pause;
+		if !mode_batch{do pause;}
 	}
 }
 
@@ -380,7 +382,7 @@ species NBSS {
 		if (!inspected){
 			ask any(maintenance){
 				do visual_inspection(myself);
-				write " DOING A VISUAL INSPECTION OF THE NBSS ";
+				if !mode_batch {write " DOING A VISUAL INSPECTION OF THE NBSS ";}
 				}
 			}
 	}
@@ -887,7 +889,7 @@ species failure_event{
 			myself.last_failure <- current_date;
 			add myself to:self.my_failures;
 		}
-		write my_name + " on " + impacted_agent + " on " + string(current_date,"dd MM yyyy");
+		if !mode_batch {write my_name + " on " + impacted_agent + " on " + string(current_date,"dd MM yyyy");}
 		
 	}
 	
@@ -1052,7 +1054,7 @@ species ext_metric_failure parent: failure_event {
 	reflex update_next_metric_failure  when:(current_date=next_failure){
 		next_failure <- current_date + ceil((my_threshold - my_value) / my_accumulation_rate) #year;
 	    do failure_impact(1.0);
-	    write "next_failure is " +  next_failure;
+	    if !mode_batch {write "next_failure is " +  next_failure;}
 	}
 	
 
@@ -1089,7 +1091,7 @@ species maintenance {
 	reflex trigger_maintenance when: (current_date = maintenance_trigger_date + 1 #day) and (maintenance_trigger_date !=starting_date) {
 		if ("preventive" in maintenance_type and !(impacted_component.my_NBSS.inspected)){
 			do visual_inspection(impacted_component.my_NBSS);
-			write " DOING A VISUAL INSPECTION OF THE NBSS ";
+			if !mode_batch {write " DOING A VISUAL INSPECTION OF THE NBSS ";}
 		}
 		if (impacted_component is vegetal_component){
 			execution_month_delay <- check_veg_delay();
@@ -1120,7 +1122,7 @@ species maintenance {
 		ask impacted_component {
 			// performance criteria maintenance_ressources is increased by the impact_level of the maintenance practice weighted by the complexity of the practice
 			// if the impacted component is in a very bad state before maintenance than the weight of the practice will be greather than if it is still in an acceptable state
-			write myself.practice_intensity[state];
+			if !mode_batch {write myself.practice_intensity[state];}
 			maintenance_ressources <- maintenance_ressources + (myself.practice_intensity[state]*myself.impact_level);
 			function_attributes[myself.impacted_attribute] <- min(3,function_attributes[myself.impacted_attribute]+myself.impact_level);
 			maintenance_state <- false;	
@@ -1146,7 +1148,7 @@ species maintenance {
 			
 		}
 		do check_veg_negative_impact();
-		write practice_name + "done on " + impacted_component.my_name + " on " + current_date;
+		if !mode_batch {write practice_name + "done on " + impacted_component.my_name + " on " + current_date;}
 	}
 
 	reflex veg_maintenance_practice when: every(1#month) and (current_date>execution_start) and (current_date <=(execution_start + execution_month_delay #month)) and (impacted_component is vegetal_component) {
@@ -1173,7 +1175,7 @@ species maintenance {
 			
 		}
 		do check_veg_negative_impact();
-		write practice_name + "done on " + impacted_component.my_name + " on " + current_date;		
+		if !mode_batch {write practice_name + "done on " + impacted_component.my_name + " on " + current_date;}
 
 	}
 
@@ -1209,7 +1211,7 @@ species maintenance {
 						}
 					
 					}
-					// when mowing is done in summer, biodiversity is impacted
+					// when mowing is done on filter media in summer, biodiversity is impacted
 					if (("excess_veg_removal" in myself.practice_name) and (myself.impacted_component.my_name="filter_media")) {
 						if !(current_season =myself.my_target_season) {
 							create failure_event {
@@ -1217,8 +1219,8 @@ species maintenance {
 								impacted_agent <- myself.my_name;
 								impacted_attribute <- "my_biodiversity";	
 								last_failure <- current_date;
-								do failure_impact(0.25);
-								time_to_recover<- 1.0;
+								do failure_impact(1.0);
+								time_to_recover<- 1.0; //in months
 							}
 						}
 						if (function_attributes["my_health"] = 3) {
@@ -1227,7 +1229,7 @@ species maintenance {
 								impacted_agent <- myself.my_name;
 								impacted_attribute <- "my_biodiversity";	
 								last_failure <- current_date;
-								do failure_impact(0.25);
+								do failure_impact(1.0);
 								time_to_recover<- 1.0;
 							}
 						}
@@ -1318,6 +1320,7 @@ species scheduled_maintenance parent: maintenance {
 	bool prog_season_dep; //some maintenance practices are season-dependent, i.e. they have a positive impact only if carried out during their target season(s)
 	list<string> prog_target_season;
 	float cost;
+	float next_maintenance_interval <- maintenance_frequency + rnd(-8, 9); // 8 to 9 weeks variability around the maintenance frequency that is given in weeks in the maintenance_programmed.csv file
 	
 	// for each  maintenance practice created, create the list of linked_failures from failure_mp_map
 	// TODO: make sure that if a maintenance practice is created it should have a linked failure to it OR create another option..
@@ -1333,7 +1336,7 @@ species scheduled_maintenance parent: maintenance {
 	}
 
 
-	reflex trigger_scheduled_maintenance when: ("scheduled" in maintenance_type)and every(maintenance_frequency #week) and (current_date>starting_date){ 
+	reflex trigger_scheduled_maintenance when: ("scheduled" in maintenance_type)and every(next_maintenance_interval# week) and (current_date>starting_date){ 
 		if (practice_name="visual_inspection") {
 			do visual_inspection(any(NBSS));
 		}
@@ -1391,6 +1394,7 @@ species scheduled_maintenance parent: maintenance {
 				
 		}
 		do check_veg_negative_impact();
+		next_maintenance_interval <- maintenance_frequency + rnd(-8, 9); 
 	}
 		
 
@@ -1430,13 +1434,13 @@ experiment multi_simulation {
 		
 	//we define a init block to create new simulations
 	init {
-		//we create a second simulation (the first simulation is always created by default) with the following parameters
-		create simulation with: [maintenance_type::"corrective"];
-		create simulation with: [maintenance_type:: "scheduled"];
-		create simulation with: [maintenance_type::"scheduled_seasonal"];
-		create simulation with: [maintenance_type::"preventive"];
-		create simulation with: [maintenance_type::"preventive_seasonal"];
-		create simulation with: [maintenance_type:: "seasonal"];
+			//we create a second simulation (the first simulation is always created by default) with the following parameters
+			create simulation with: [maintenance_type::"corrective"];
+			create simulation with: [maintenance_type:: "scheduled"];
+			//create simulation with: [maintenance_type::"scheduled_seasonal"];
+			create simulation with: [maintenance_type::"preventive"];
+			create simulation with: [maintenance_type::"preventive_seasonal"];
+			create simulation with: [maintenance_type:: "seasonal"];	
 
 		
 	}
@@ -1448,6 +1452,21 @@ experiment multi_simulation {
 		monitor "Maintenance ressources" value:maintenance_ressources;		
 	}
 }
+
+experiment batch_multisim type:batch repeat:4 until:end_sim {
+	init {
+
+//		maintenance_type<-"no maintenance";
+//		maintenance_type<-"corrective";
+//		maintenance_type<- "scheduled";
+//		maintenance_type<-"scheduled_seasonal";
+//		maintenance_type<-"preventive";
+//		maintenance_type<-"preventive_seasonal";
+//		maintenance_type<- "seasonal";
+	}
+}
+
+
 // Simple run of model without interface 
 experiment "run" type: gui {
 	//parameter "maintenance type" var:maintenance_type ; //among:["no maintenance", "corrective", "scheduled", "preventive"];
