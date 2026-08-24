@@ -76,7 +76,7 @@ global {
 	bool is_batch<-false;
 		
 	// maintenance parameters 
-	string maintenance_type <- "corrective";
+	string maintenance_type <- "scheduled";
 	int intervention_delay_days <- 10;// parameter:true  min:2 max: 30;
 	
 	map results <- [];
@@ -88,6 +88,9 @@ global {
 	int flooding_days <- 0;
 	int degraded_vegetation_days <- 0; 
 	int poor_well_being_days <-0;
+	int rainclass1 <- 0;
+	int rainclass2 <- 0;
+	int rainclass3 <- 0;
 	
 
 	//Intensity threshold (mm/h)
@@ -385,6 +388,11 @@ reflex debug_2swale_transfer {
 	write "********************";
 }
 
+	reflex save_results when : (current_date=end_date){
+		
+		   save [maintenance_type,intensity_threshold, flooding_days,rainclass1, rainclass2,rainclass3] to: "results_intensity.csv" format:"csv" rewrite: false header: true ;
+		
+	}
 		
 	reflex stop_simulation when: current_date = end_date and !is_batch{
 		end_sim<-true;
@@ -451,10 +459,12 @@ species rain {
 				//Rainfall event <= 20mm in a day are considered as a runoff flow of 1
 				if (float(weather_data[1,i]) <= 15.0 and float(weather_data[1,i]) > 5.0) {
 					runoff.my_flow <- 1.0;
+					rainclass1 <- rainclass1 + 1;
 					// Swarna for intensity classes
 					//if the intensity of a rain class 1 is higher than the selected intensity threshold (mm/h), than rain is considered class 2
 					if (float(weather_data[2,i]) >= intensity_threshold) {
 					runoff.my_flow <- 2.0;
+					rainclass2 <- rainclass2 + 1;
 					}
 					//TODO : for very intense rains -> intensity higher than ....mm/h -> class 3 
 //					if (float(weather_data[2,i]) >= ) {
@@ -464,10 +474,12 @@ species rain {
 				//Rainfall event between 20mm and 80mm in a day are considered as a runoff flow of 2
 				if (float(weather_data[1,i]) > 15.0 and float(weather_data[1,i]) <= 80.0 ) {
 					runoff.my_flow <- 2.0;
+					rainclass2 <- rainclass2 + 1;
 				}
 				//Rainfall event > 80mm in a day are considered as a runoff flow of 3
 				if (float(weather_data[1,i]) > 80.0 ) {
 					runoff.my_flow <- 3.0;
+					rainclass3 <- rainclass3 + 1;
 				}
 			rainfall <- - float(weather_data[1,i]);
 			}
