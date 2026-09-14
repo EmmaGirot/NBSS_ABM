@@ -93,6 +93,21 @@ global {
 	int rainclass3 <- 0;
 	
 
+	// Flooding indicators by NBSS
+	int flooding_days_nbss1 <- 0;
+	int flooding_days_nbss2 <- 0;
+	
+	int accepted_flood_days_nbss1 <- 0;
+	int accepted_flood_days_nbss2 <- 0;
+	
+	// System-wide indicators: each date counted only once
+	int flooding_days_system <- 0;
+	int accepted_flood_days_system <- 0;
+	
+	list<date> system_flooding_dates <- [];
+	list<date> system_accepted_flood_dates <- [];
+	
+
 	//Intensity threshold (mm/h)
 	float intensity_threshold <- 2.86;
 
@@ -388,11 +403,22 @@ reflex debug_2swale_transfer {
 	write "********************";
 }
 
-	reflex save_results when : (current_date=end_date){
+	//reflex save_results when : (current_date=end_date){
 		
-		   save [maintenance_type,intensity_threshold, flooding_days,rainclass1, rainclass2,rainclass3] to: "results_intensity.csv" format:"csv" rewrite: false header: true ;
-		
-	}
+		//   save [maintenance_type,
+//        intensity_threshold,
+ //       maintenance_ressources,
+ //       accepted_flood_days,
+   //     flooding_days,
+    //    degraded_vegetation_days,
+     //   poor_well_being_days,
+      //  rainclass1,
+     //   rainclass2,
+     //   rainclass3
+   // ]
+ //   to: "../results/rainfall_results_scheduled.csv" format:"csv" rewrite: false header: true ;
+//		
+//	}
 		
 	reflex stop_simulation when: current_date = end_date and !is_batch{
 		end_sim<-true;
@@ -456,16 +482,35 @@ species rain {
 		runoff.my_flow <- 0.0;
 		loop i from:0 to:weather_data.rows-1 {
 			if current_date = date(string(int(weather_data[0,i]))) {
+		
+				// Emma's original class 1
 				//Rainfall event <= 20mm in a day are considered as a runoff flow of 1
-				if (float(weather_data[1,i]) <= 15.0 and float(weather_data[1,i]) > 5.0) {
-					runoff.my_flow <- 1.0;
-					rainclass1 <- rainclass1 + 1;
+           // if (float(weather_data[1,i]) <= 20.0   and float(weather_data[1,i]) > 5.0) {
+               // runoff.my_flow <- 1.0;
+              //  rainclass1 <- rainclass1 + 1;
+           // }
+			
+				// Rainfall event between 2 and 15 mm/day: runoff class 1
+			//if (float(weather_data[1,i]) <= 15.0 and float(weather_data[1,i]) > 2.0) {
+			  //  runoff.my_flow <- 1.0;
+			    //rainclass1 <- rainclass1 + 1;
+			//}
+				//The intensity part
+				if (float(weather_data[1,i]) <= 15.0 and float(weather_data[1,i]) > 2.0) {
+				    if (float(weather_data[2,i]) >= intensity_threshold) {
+				        runoff.my_flow <- 2.0;
+				        rainclass2 <- rainclass2 + 1;
+				   }
+				   else {
+				        runoff.my_flow <- 1.0;
+				        rainclass1 <- rainclass1 + 1;
+				   }
 					// Swarna for intensity classes
 					//if the intensity of a rain class 1 is higher than the selected intensity threshold (mm/h), than rain is considered class 2
-					if (float(weather_data[2,i]) >= intensity_threshold) {
-					runoff.my_flow <- 2.0;
-					rainclass2 <- rainclass2 + 1;
-					}
+					//if (float(weather_data[2,i]) >= intensity_threshold) {
+					//runoff.my_flow <- 2.0;
+					//rainclass2 <- rainclass2 + 1;
+					//}
 					//TODO : for very intense rains -> intensity higher than ....mm/h -> class 3 
 //					if (float(weather_data[2,i]) >= ) {
 //					runoff.my_flow <- 3.0;
@@ -549,11 +594,41 @@ species NBSS {
 	}
 	
 	reflex accepted_flood when: (my_inlet.my_output_unmanaged_flow.my_flow =3 or my_ponding_area.my_output_unmanaged_flow.my_flow=3){
+		// Existing global counter
 		accepted_flood_days <- accepted_flood_days +1 ;
+		// New counters by NBSS
+    if (nbss_id = 1) {
+        accepted_flood_days_nbss1 <- accepted_flood_days_nbss1 + 1;
+    }
+
+    if (nbss_id = 2) {
+        accepted_flood_days_nbss2 <- accepted_flood_days_nbss2 + 1;
+    }
+    // System-wide counter:
+    // count this calendar day only once
+    if not (system_accepted_flood_dates contains current_date) {
+        add current_date to: system_accepted_flood_dates;
+        accepted_flood_days_system <- accepted_flood_days_system + 1;
+    }
 	}
 	
 	reflex flooding when: ((my_inlet.my_output_unmanaged_flow.my_flow >= 1 and my_inlet.my_output_unmanaged_flow.my_flow <3) or (my_ponding_area.my_output_unmanaged_flow.my_flow >= 1 and my_ponding_area.my_output_unmanaged_flow.my_flow <3) ){
+		// Existing global counter
 		flooding_days <- flooding_days +1 ;
+		// New counters by NBSS
+    if (nbss_id = 1) {
+        flooding_days_nbss1 <- flooding_days_nbss1 + 1;
+    }
+
+    if (nbss_id = 2) {
+        flooding_days_nbss2 <- flooding_days_nbss2 + 1;
+    }
+     // System-wide counter:
+    // count this calendar day only once
+    if not (system_flooding_dates contains current_date) {
+        add current_date to: system_flooding_dates;
+        flooding_days_system <- flooding_days_system + 1;
+    }
 	}
 	
 	//Because performance indicators are calculated daily, multiple dysfunctions occurring on the same day are counted only once thanks to this reflex
@@ -1722,45 +1797,59 @@ experiment "explore" type: batch repeat:10 until: (current_date = end_date) {
 
 }
 
-experiment "rainfall intensity sensitivity" type: batch repeat: 3
+experiment "rainfall intensity sensitivity" type: batch repeat: 1
 parallel: true
 until: (current_date = end_date) {
 
     parameter "Maintenance"
         var: maintenance_type
-        among: ["scheduled"]
-        init: "scheduled";
+        among: ["scheduled",
+			    "corrective",
+			    "preventive",
+			    "preventive_seasonal",
+			    "seasonal"]
+        init: "seasonal";
 
     parameter "Intensity threshold"
         var: intensity_threshold
-        among: [2.86, 3.0, 3.5]
-        init: 2.86;
+        among: [2.08, 2.89, 7.04]
+        init: 2.08;
 
 	parameter "Batch mode"
         var: is_batch
         init: true;
 
-    reflex save_results {
+   reflex save_results {
 
-        ask simulations {
+    ask simulations {
 
-            write "threshold: " + intensity_threshold;
-
-            save [
-                intensity_threshold,
-                maintenance_type,
-                maintenance_ressources,
-                accepted_flood_days,
-                flooding_days,
-                degraded_vegetation_days,
-                poor_well_being_days
-            ]
-            to: "../results/rainfall_intensity_results.csv"
-            format: "csv"
-            rewrite: false
-            header: true;
-        }
+        save [
+            maintenance_type,
+            intensity_threshold,
+            maintenance_ressources,
+            
+            accepted_flood_days,
+            accepted_flood_days_nbss1,
+            accepted_flood_days_nbss2,
+            accepted_flood_days_system,
+            
+            flooding_days,
+            flooding_days_nbss1,
+            flooding_days_nbss2,
+            flooding_days_system,
+            
+            degraded_vegetation_days,
+            poor_well_being_days,
+            rainclass1,
+            rainclass2,
+            rainclass3
+        ]
+        to: "../results/rainfall_results_intensity_percentiles.csv"
+        format: "csv"
+        rewrite: false
+        header: true;
     }
+}
 }
 
 // Simple run of model without interface 

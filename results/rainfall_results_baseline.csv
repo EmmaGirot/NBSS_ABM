@@ -1,0 +1,6 @@
+maintenance_type,maintenance_ressources,accepted_flood_days,accepted_flood_days_nbss1,accepted_flood_days_nbss2,accepted_flood_days_system,flooding_days,flooding_days_nbss1,flooding_days_nbss2,flooding_days_system,degraded_vegetation_days,poor_well_being_days,rainclass1,rainclass2,rainclass3
+scheduled,3636.4348139815056,240,2,238,238,2526,1381,1145,1381,6161,9749,1145,236,2
+corrective,3035.5,240,2,238,238,2526,1381,1145,1381,11542,12574,1145,236,2
+preventive,795.0,240,2,238,238,2526,1381,1145,1381,11650,12330,1145,236,2
+preventive_seasonal,845.0,240,2,238,238,2526,1381,1145,1381,11688,12280,1145,236,2
+seasonal,25.0,240,2,238,238,2526,1381,1145,1381,11240,12394,1145,236,2
